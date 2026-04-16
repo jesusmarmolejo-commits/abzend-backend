@@ -1,0 +1,27 @@
+{
+  "name": "abzend-backend",
+  "version": "1.0.0",
+  "description": "ABZEND — Backend API con Supabase",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "migrate": "node supabase/migrate.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.3",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "stripe": "^14.18.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "express-rate-limit": "^7.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}
