@@ -33,13 +33,11 @@ router.patch('/driver/status',   authenticate, requireRole('driver'), updateDriv
 router.post ('/driver/location', authenticate, requireRole('driver'), updateLocation);
 
 // ─── Pagos / Stripe ────────────────────────────
-// IMPORTANTE: el webhook de Stripe necesita el body RAW (sin parsear JSON)
 router.post('/payments/webhook', express.raw({ type: 'application/json' }), stripeWebhook);
 router.post('/payments/intent',  authenticate, createPaymentIntent);
 router.get ('/payments/order/:id', authenticate, getPaymentStatus);
 
-export default router;
-// --- Crear usuario desde panel admin ---
+// ─── Crear usuario desde panel admin ───────────
 router.post('/admin/users', async (req, res) => {
   const secret = req.headers['x-admin-secret']
   if (secret !== process.env.ADMIN_SECRET) {
