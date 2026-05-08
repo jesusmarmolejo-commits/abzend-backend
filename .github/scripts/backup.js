@@ -1,4 +1,4 @@
-const { google } = require('@googleapis/drive')
+const { google } = require('googleapis')
 const fs = require('fs')
 const path = require('path')
 
@@ -20,7 +20,6 @@ async function fetchTable(table) {
       Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
-      'Prefer': 'count=exact'
     }
   })
   if (!res.ok) {
@@ -33,10 +32,8 @@ async function fetchTable(table) {
 async function backupDatabase() {
   const dbDir = `${BACKUP_DIR}/database`
   fs.mkdirSync(dbDir, { recursive: true })
-
   let summary = `-- ABZEND Database Backup ${TODAY}\n-- Generado: ${new Date().toISOString()}\n\n`
   let totalRows = 0
-
   for (const table of TABLES) {
     try {
       const rows = await fetchTable(table)
@@ -50,7 +47,6 @@ async function backupDatabase() {
       console.log(`  ${table}: ERROR - ${e.message}`)
     }
   }
-
   summary += `\n-- Total registros: ${totalRows}\n`
   fs.writeFileSync(`${dbDir}/_resumen.txt`, summary)
   console.log(`Database backup completado: ${totalRows} registros totales`)
@@ -59,16 +55,9 @@ async function backupDatabase() {
 async function backupStorage() {
   const storageDir = `${BACKUP_DIR}/storage`
   fs.mkdirSync(storageDir, { recursive: true })
-
   const buckets = ['clientes-docs']
   for (const bucket of buckets) {
     try {
-      const res = await fetch(`${process.env.SUPABASE_URL}/storage/v1/bucket/${bucket}`, {
-        headers: {
-          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
-        }
-      })
       const listRes = await fetch(`${process.env.SUPABASE_URL}/storage/v1/object/list/${bucket}`, {
         method: 'POST',
         headers: {
@@ -89,18 +78,13 @@ async function backupStorage() {
 }
 
 async function uploadToDrive() {
-  console.log('Credentials file exists:', fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS))
-console.log('Credentials file size:', fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS) ? fs.statSync(process.env.GOOGLE_APPLICATION_CREDENTIALS).size : 0)
-const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
-console.log('Raw creds length:', rawCreds.length)
-console.log('Raw creds start:', rawCreds.substring(0, 50))
-const credentials = JSON.parse(rawCreds)
-console.log('Credentials type:', credentials.type)
-  const auth = new google.auth.GoogleAuth({
+  const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
+  const credentials = JSON.parse(rawCreds)
+  const client = await google.auth.getClient({
     credentials,
     scopes: ['https://www.googleapis.com/auth/drive']
   })
-  const drive = google.drive({ version: 'v3', auth })
+  const drive = google.drive({ version: 'v3', auth: client })
 
   const folderRes = await drive.files.create({
     requestBody: {
@@ -153,20 +137,15 @@ async function cleanOldBackups(drive) {
 async function main() {
   console.log(`Iniciando backup ABZEND - ${TODAY}`)
   fs.mkdirSync(BACKUP_DIR, { recursive: true })
-
   console.log('1. Backup base de datos...')
   await backupDatabase()
-
   console.log('2. Backup Storage...')
   await backupStorage()
-
   console.log('3. Subiendo a Google Drive...')
   const filesCount = await uploadToDrive()
-
   if (process.env.GITHUB_OUTPUT) {
     fs.appendFileSync(process.env.GITHUB_OUTPUT, `date=${TODAY}\nfiles_count=${filesCount}\n`)
   }
-
   console.log(`Backup completado exitosamente. ${filesCount} archivos subidos a Drive.`)
 }
 
