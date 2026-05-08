@@ -20,7 +20,7 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        run: npm install @googleapis/drive pg pg-format
+        run: npm install @googleapis/drive google-auth-library pg-format
 
       - name: Setup Google credentials
         run: |
@@ -91,7 +91,7 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        run: npm install @googleapis/drive pg
+        run: npm install @googleapis/drive google-auth-library
 
       - name: Setup Google credentials
         run: |
@@ -126,7 +126,7 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        run: npm install @googleapis/drive pg
+        run: npm install @googleapis/drive google-auth-library
 
       - name: Setup Google credentials
         run: |
