@@ -89,7 +89,13 @@ async function backupStorage() {
 }
 
 async function uploadToDrive() {
-  const credentials = JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8'))
+  console.log('Credentials file exists:', fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS))
+console.log('Credentials file size:', fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS) ? fs.statSync(process.env.GOOGLE_APPLICATION_CREDENTIALS).size : 0)
+const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
+console.log('Raw creds length:', rawCreds.length)
+console.log('Raw creds start:', rawCreds.substring(0, 50))
+const credentials = JSON.parse(rawCreds)
+console.log('Credentials type:', credentials.type)
   const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ['https://www.googleapis.com/auth/drive']
