@@ -1,67 +1,55 @@
 const { google } = require('@googleapis/drive')
-const { Client } = require('pg')
 const fs = require('fs')
 const path = require('path')
-const { execSync } = require('child_process')
 
 const TODAY = new Date().toISOString().slice(0, 10)
 const BACKUP_DIR = `/tmp/abzend-backup-${TODAY}`
 
-async function main() {
-  console.log(`Iniciando backup ABZEND - ${TODAY}`)
-  fs.mkdirSync(BACKUP_DIR, { recursive: true })
+const TABLES = [
+  'orders', 'users', 'drivers', 'clientes', 'transport_orders',
+  'transport_order_stops', 'transport_units', 'transport_rates',
+  'order_events', 'proof_of_delivery', 'ratings', 'driver_locations',
+  'shipment_statuses', 'cliente_direcciones', 'cliente_contactos', 'cliente_documentos'
+]
 
-  // 1. Backup PostgreSQL via Supabase
-  console.log('Haciendo dump de base de datos...')
-  await backupDatabase()
-
-  // 2. Backup Supabase Storage
-  console.log('Descargando archivos de Storage...')
-  await backupStorage()
-
-  // 3. Subir a Google Drive
-  console.log('Subiendo a Google Drive...')
-  const filesCount = await uploadToDrive()
-
-  // Output para GitHub Actions
-  fs.appendFileSync(process.env.GITHUB_OUTPUT || '/dev/null',
-    `date=${TODAY}\nfiles_count=${filesCount}\n`)
-
-  console.log(`Backup completado. ${filesCount} archivos subidos.`)
+async function fetchTable(table) {
+  const url = `${process.env.SUPABASE_URL}/rest/v1/${table}?select=*`
+  const res = await fetch(url, {
+    headers: {
+      apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'count=exact'
+    }
+  })
+  if (!res.ok) throw new Error(`Error en tabla ${table}: ${res.status} ${res.statusText}`)
+  return res.json()
 }
 
 async function backupDatabase() {
-  const url = new URL(process.env.SUPABASE_URL)
-  const host = url.hostname
-  const dbUrl = `postgresql://postgres:${process.env.SUPABASE_SERVICE_ROLE_KEY}@${host}:5432/postgres`
+  const dbDir = `${BACKUP_DIR}/database`
+  fs.mkdirSync(dbDir, { recursive: true })
 
-  try {
-    execSync(`pg_dump "${dbUrl}" > ${BACKUP_DIR}/database.sql`, {
-      env: { ...process.env, PGPASSWORD: process.env.SUPABASE_SERVICE_ROLE_KEY }
-    })
-    console.log('Database dump completado')
-  } catch (e) {
-    // Si pg_dump no está disponible, hacemos backup via API
-    console.log('pg_dump no disponible, usando API...')
-    const client = new Client({ connectionString: dbUrl })
-    await client.connect()
-    const tables = ['orders', 'users', 'drivers', 'clientes', 'transport_orders',
-      'transport_order_stops', 'transport_units', 'transport_rates',
-      'order_events', 'proof_of_delivery', 'ratings', 'driver_locations',
-      'shipment_statuses', 'cliente_direcciones', 'cliente_contactos', 'cliente_documentos']
-    let dump = `-- ABZEND Database Backup ${TODAY}\n\n`
-    for (const table of tables) {
-      try {
-        const res = await client.query(`SELECT * FROM ${table}`)
-        dump += `-- Table: ${table} (${res.rows.length} rows)\n`
-        dump += JSON.stringify(res.rows, null, 2) + '\n\n'
-      } catch (err) {
-        dump += `-- Table ${table}: ERROR ${err.message}\n\n`
-      }
+  let summary = `-- ABZEND Database Backup ${TODAY}\n-- Generado: ${new Date().toISOString()}\n\n`
+  let totalRows = 0
+
+  for (const table of TABLES) {
+    try {
+      const rows = await fetchTable(table)
+      const count = Array.isArray(rows) ? rows.length : 0
+      totalRows += count
+      fs.writeFileSync(`${dbDir}/${table}.json`, JSON.stringify(rows, null, 2))
+      summary += `-- ${table}: ${count} registros\n`
+      console.log(`  ${table}: ${count} registros`)
+    } catch (e) {
+      summary += `-- ${table}: ERROR - ${e.message}\n`
+      console.log(`  ${table}: ERROR - ${e.message}`)
     }
-    fs.writeFileSync(`${BACKUP_DIR}/database.sql`, dump)
-    await client.end()
   }
+
+  summary += `\n-- Total registros: ${totalRows}\n`
+  fs.writeFileSync(`${dbDir}/_resumen.txt`, summary)
+  console.log(`Database backup completado: ${totalRows} registros totales`)
 }
 
 async function backupStorage() {
@@ -70,19 +58,28 @@ async function backupStorage() {
 
   const buckets = ['clientes-docs']
   for (const bucket of buckets) {
-    const url = `${process.env.SUPABASE_URL}/storage/v1/object/list/${bucket}`
     try {
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}` }
+      const res = await fetch(`${process.env.SUPABASE_URL}/storage/v1/bucket/${bucket}`, {
+        headers: {
+          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
+        }
       })
-      const files = await res.json()
-      if (Array.isArray(files)) {
-        const meta = { bucket, files: files.map(f => f.name), date: TODAY }
-        fs.writeFileSync(`${storageDir}/${bucket}-manifest.json`, JSON.stringify(meta, null, 2))
-        console.log(`Storage bucket ${bucket}: ${files.length} archivos registrados`)
-      }
+      const listRes = await fetch(`${process.env.SUPABASE_URL}/storage/v1/object/list/${bucket}`, {
+        method: 'POST',
+        headers: {
+          apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ limit: 1000, offset: 0 })
+      })
+      const files = await listRes.json()
+      const manifest = { bucket, date: TODAY, files: Array.isArray(files) ? files.map(f => f.name) : [] }
+      fs.writeFileSync(`${storageDir}/${bucket}-manifest.json`, JSON.stringify(manifest, null, 2))
+      console.log(`Storage ${bucket}: ${manifest.files.length} archivos registrados`)
     } catch (e) {
-      console.log(`Error en storage bucket ${bucket}: ${e.message}`)
+      console.log(`Storage ${bucket}: ERROR - ${e.message}`)
     }
   }
 }
@@ -94,7 +91,6 @@ async function uploadToDrive() {
   })
   const drive = google.drive({ version: 'v3', auth })
 
-  // Crear carpeta del dia
   const folderRes = await drive.files.create({
     requestBody: {
       name: TODAY,
@@ -104,25 +100,17 @@ async function uploadToDrive() {
   })
   const dayFolderId = folderRes.data.id
 
-  // Subir todos los archivos
   const files = getAllFiles(BACKUP_DIR)
   for (const filePath of files) {
-    const fileName = path.relative(BACKUP_DIR, filePath).replace(/\//g, '_')
+    const fileName = path.relative(BACKUP_DIR, filePath).replace(/[\/\\]/g, '_')
     await drive.files.create({
-      requestBody: {
-        name: fileName,
-        parents: [dayFolderId]
-      },
-      media: {
-        body: fs.createReadStream(filePath)
-      }
+      requestBody: { name: fileName, parents: [dayFolderId] },
+      media: { body: fs.createReadStream(filePath) }
     })
-    console.log(`Subido: ${fileName}`)
+    console.log(`  Subido: ${fileName}`)
   }
 
-  // Limpiar backups viejos (mas de 30 dias)
   await cleanOldBackups(drive)
-
   return files.length
 }
 
@@ -130,11 +118,8 @@ function getAllFiles(dir) {
   const files = []
   for (const item of fs.readdirSync(dir)) {
     const full = path.join(dir, item)
-    if (fs.statSync(full).isDirectory()) {
-      files.push(...getAllFiles(full))
-    } else {
-      files.push(full)
-    }
+    if (fs.statSync(full).isDirectory()) files.push(...getAllFiles(full))
+    else files.push(full)
   }
   return files
 }
@@ -146,7 +131,7 @@ async function cleanOldBackups(drive) {
     q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'`,
     fields: 'files(id, name, createdTime)'
   })
-  for (const folder of res.data.files || []) {
+  for (const folder of (res.data.files || [])) {
     if (new Date(folder.createdTime) < cutoff) {
       await drive.files.delete({ fileId: folder.id })
       console.log(`Eliminado backup antiguo: ${folder.name}`)
@@ -154,7 +139,27 @@ async function cleanOldBackups(drive) {
   }
 }
 
+async function main() {
+  console.log(`Iniciando backup ABZEND - ${TODAY}`)
+  fs.mkdirSync(BACKUP_DIR, { recursive: true })
+
+  console.log('1. Backup base de datos...')
+  await backupDatabase()
+
+  console.log('2. Backup Storage...')
+  await backupStorage()
+
+  console.log('3. Subiendo a Google Drive...')
+  const filesCount = await uploadToDrive()
+
+  if (process.env.GITHUB_OUTPUT) {
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `date=${TODAY}\nfiles_count=${filesCount}\n`)
+  }
+
+  console.log(`Backup completado exitosamente. ${filesCount} archivos subidos a Drive.`)
+}
+
 main().catch(e => {
-  console.error('Error en backup:', e.message)
+  console.error('Error fatal en backup:', e.message)
   process.exit(1)
 })
