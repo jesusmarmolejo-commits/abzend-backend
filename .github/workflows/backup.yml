@@ -1,0 +1,157 @@
+name: ABZEND Daily Backup
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # 2am Mexico (UTC-6 = 8am UTC)
+  workflow_dispatch:      # permite correrlo manualmente
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @googleapis/drive pg pg-format
+
+      - name: Setup Google credentials
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > /tmp/google-credentials.json
+
+      - name: Run backup
+        id: backup
+        run: node .github/scripts/backup.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+
+      - name: Notify success
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.NOTIFICATION_EMAIL }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "✅ ABZEND Backup exitoso - ${{ steps.backup.outputs.date }}"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: ABZEND Backup
+          body: |
+            El backup diario de ABZEND se completó exitosamente.
+            Fecha: ${{ steps.backup.outputs.date }}
+            Archivos respaldados: ${{ steps.backup.outputs.files_count }}
+            Carpeta en Drive: ABZEND-Backups/${{ steps.backup.outputs.date }}
+
+      - name: Notify failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.NOTIFICATION_EMAIL }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "❌ ABZEND Backup FALLIDO - $(date +%Y-%m-%d)"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: ABZEND Backup
+          body: |
+            El backup diario de ABZEND falló.
+            Revisa los logs en GitHub Actions:
+            https://github.com/jesusmarmolejo-commits/abzend-backend/actions
+
+    strategy:
+      max-parallel: 1
+
+  retry-backup:
+    needs: backup
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Wait 5 minutes before retry
+        run: sleep 300
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @googleapis/drive pg
+
+      - name: Setup Google credentials
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > /tmp/google-credentials.json
+
+      - name: Retry backup (intento 2)
+        id: retry1
+        run: node .github/scripts/backup.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+
+  retry-backup-2:
+    needs: retry-backup
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Wait 5 minutes before retry
+        run: sleep 300
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @googleapis/drive pg
+
+      - name: Setup Google credentials
+        run: |
+          echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' > /tmp/google-credentials.json
+
+      - name: Retry backup (intento 3 - final)
+        run: node .github/scripts/backup.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+
+      - name: Notify final failure
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.NOTIFICATION_EMAIL }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "🚨 ABZEND Backup FALLIDO 3 intentos - $(date +%Y-%m-%d)"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: ABZEND Backup
+          body: |
+            El backup falló después de 3 intentos. Requiere atención manual.
+            Revisa los logs: https://github.com/jesusmarmolejo-commits/abzend-backend/actions
