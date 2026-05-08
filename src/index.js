@@ -9,6 +9,7 @@ import routes from './routes/index.js';
 import { supabaseAdmin } from './services/supabase.js';
 
 const app = express();
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 
 // ─────────────────────────────────────────────

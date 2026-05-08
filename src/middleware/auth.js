@@ -35,3 +35,22 @@ export const requireRole = (...roles) => (req, res, next) => {
   }
   next();
 };
+// Sanitiza inputs para prevenir XSS y ataques de inyeccion
+export const sanitize = (req, res, next) => {
+  const clean = (obj) => {
+    if (!obj || typeof obj !== 'object') return
+    for (const key of Object.keys(obj)) {
+      if (typeof obj[key] === 'string') {
+        obj[key] = obj[key]
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/[<>]/g, '')
+          .trim()
+      } else if (typeof obj[key] === 'object') {
+        clean(obj[key])
+      }
+    }
+  }
+  clean(req.body)
+  clean(req.query)
+  next()
+}
