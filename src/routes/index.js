@@ -4,19 +4,20 @@ import { login, register } from '../controllers/authController.js';
 import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver } from '../controllers/ordersController.js';
 import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers } from '../controllers/driversController.js';
 import { createPaymentIntent, stripeWebhook, getPaymentStatus } from '../controllers/paymentsController.js';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate, requireRole, sanitize } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // ─── Auth ───────────────────────────────────────
-router.post('/auth/login',    login);
-router.post('/auth/register', authenticate, requireRole('admin'), register);
+router.post('/auth/login',    sanitize, login);
+router.post('/auth/register', authenticate, requireRole('admin'), sanitize, register);
 
 // ─── Órdenes (cliente) ─────────────────────────
 router.get ('/orders',            authenticate, getOrders);
 router.get ('/orders/qr/:code',   authenticate, getOrderByQR);
 router.get ('/orders/:id',        authenticate, getOrder);
-router.post('/orders',            authenticate, requireRole('client', 'admin'), createOrder);
+router.post('/auth/login',    sanitize, login);
+router.post('/orders',            authenticate, requireRole('client', 'admin'), sanitize, createOrder);
 
 // ─── Órdenes (repartidor) ──────────────────────
 router.post ('/orders/:id/pickup',  authenticate, requireRole('driver', 'admin'), confirmPickup);
@@ -38,7 +39,7 @@ router.post('/payments/intent',  authenticate, createPaymentIntent);
 router.get ('/payments/order/:id', authenticate, getPaymentStatus);
 
 // ─── Crear usuario desde panel admin ───────────
-router.post('/admin/users', async (req, res) => {
+router.post('/admin/users', sanitize, async (req, res) => {
   const secret = req.headers['x-admin-secret']
   if (secret !== process.env.ADMIN_SECRET) {
     return res.status(401).json({ error: 'No autorizado' })
