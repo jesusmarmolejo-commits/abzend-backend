@@ -78,6 +78,7 @@ async function backupStorage() {
 }
 
 async function uploadToDrive() {
+  console.log('FOLDER_ID:', process.env.GOOGLE_DRIVE_FOLDER_ID?.length, 'chars')
   const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
   const credentials = JSON.parse(rawCreds)
   const client = await google.auth.getClient({
