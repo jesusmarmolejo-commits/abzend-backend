@@ -14,6 +14,9 @@ const TABLES = [
 
 async function fetchTable(table) {
   const url = `${process.env.SUPABASE_URL}/rest/v1/${table}?select=*`
+  console.log(`URL: ${url}`)
+  console.log(`KEY length: ${process.env.SUPABASE_SERVICE_ROLE_KEY?.length}`)
+  console.log(`KEY starts: ${process.env.SUPABASE_SERVICE_ROLE_KEY?.substring(0,20)}`)
   const res = await fetch(url, {
     headers: {
       apikey: process.env.SUPABASE_SERVICE_ROLE_KEY,
