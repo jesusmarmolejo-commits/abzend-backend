@@ -102,9 +102,12 @@ export const createOrder = async (req, res) => {
     const tax = Math.round((subtotal + insurance_cost) * 0.16 * 100) / 100;
     const total = subtotal + insurance_cost + tax;
 
+    const tracking_code = `ABZ-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.random().toString(36).substr(2,8).toUpperCase()}`
+
     const { data, error } = await supabaseAdmin
       .from('orders')
       .insert({
+        tracking_code,
         client_id: req.user.id,
         sender_name, sender_phone, origin_address, origin_lat, origin_lng,
         recipient_name, recipient_phone, dest_address, dest_lat, dest_lng,
