@@ -88,6 +88,7 @@ async function uploadToDrive() {
   const drive = google.drive({ version: 'v3', auth })
 
   const folderRes = await drive.files.create({
+    supportsAllDrives: true,
     requestBody: {
       name: TODAY,
       mimeType: 'application/vnd.google-apps.folder',
@@ -100,6 +101,7 @@ async function uploadToDrive() {
   for (const filePath of files) {
     const fileName = path.relative(BACKUP_DIR, filePath).replace(/[\/\\]/g, '_')
     await drive.files.create({
+      supportsAllDrives: true,
       requestBody: { name: fileName, parents: [dayFolderId] },
       media: { body: fs.createReadStream(filePath) }
     })
@@ -124,12 +126,14 @@ async function cleanOldBackups(drive) {
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - 30)
   const res = await drive.files.list({
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
     q: `'${process.env.GOOGLE_DRIVE_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder'`,
     fields: 'files(id, name, createdTime)'
   })
   for (const folder of (res.data.files || [])) {
     if (new Date(folder.createdTime) < cutoff) {
-      await drive.files.delete({ fileId: folder.id })
+      await drive.files.delete({ supportsAllDrives: true, fileId: folder.id })
       console.log(`Eliminado backup antiguo: ${folder.name}`)
     }
   }
