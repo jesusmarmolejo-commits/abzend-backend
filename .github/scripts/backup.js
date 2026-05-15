@@ -79,13 +79,12 @@ async function backupStorage() {
 
 async function uploadToDrive() {
   console.log('FOLDER_ID:', process.env.GOOGLE_DRIVE_FOLDER_ID?.length, 'chars')
-  const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
-  const credentials = JSON.parse(rawCreds)
-  const auth = new google.auth.GoogleAuth({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive']
-  })
-  const drive = google.drive({ version: 'v3', auth })
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  )
+  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN })
+  const drive = google.drive({ version: 'v3', auth: oauth2Client })
 
   const folderRes = await drive.files.create({
     supportsAllDrives: true,
