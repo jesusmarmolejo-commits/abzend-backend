@@ -35,7 +35,8 @@ export const getMyOrders = async (req, res) => {
 
     res.json({ orders });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('getMyOrders error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -72,7 +73,8 @@ export const getHistory = async (req, res) => {
 
     res.json({ orders, count: orders.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('getHistory error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -91,7 +93,8 @@ export const updateDriverStatus = async (req, res) => {
     if (error) throw error;
     res.json({ message: `Estado actualizado: ${status}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('updateDriverStatus error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -121,7 +124,8 @@ export const updateLocation = async (req, res) => {
     // Supabase Realtime notifica automáticamente a los suscriptores
     res.json({ message: 'Ubicación actualizada' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('updateLocation error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -136,6 +140,7 @@ export const getAllDrivers = async (req, res) => {
     if (error) throw error;
     res.json({ drivers: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('getAllDrivers error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };

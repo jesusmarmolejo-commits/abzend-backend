@@ -14,9 +14,8 @@ router.post('/auth/register', authenticate, requireRole('admin'), sanitize, regi
 
 // ─── Órdenes (cliente) ─────────────────────────
 router.get ('/orders',            authenticate, getOrders);
-router.get ('/orders/qr/:code',   authenticate, getOrderByQR);
+router.get ('/orders/qr/:code',   authenticate, requireRole('driver', 'admin'), getOrderByQR);
 router.get ('/orders/:id',        authenticate, getOrder);
-router.post('/auth/login',    sanitize, login);
 router.post('/orders',            authenticate, requireRole('client', 'admin'), sanitize, createOrder);
 
 // ─── Órdenes (repartidor) ──────────────────────
@@ -39,28 +38,25 @@ router.post('/payments/intent',  authenticate, createPaymentIntent);
 router.get ('/payments/order/:id', authenticate, getPaymentStatus);
 
 // ─── Crear usuario desde panel admin ───────────
-router.post('/admin/users', sanitize, async (req, res) => {
-  const secret = req.headers['x-admin-secret']
-  if (secret !== process.env.ADMIN_SECRET) {
-    return res.status(401).json({ error: 'No autorizado' })
-  }
+router.post('/admin/users', authenticate, requireRole('admin'), sanitize, async (req, res) => {
   const { email, password, full_name, phone, role = 'client' } = req.body
   try {
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email, password, email_confirm: true
     })
-    if (authError) return res.status(400).json({ error: authError.message })
+    if (authError) return res.status(400).json({ error: 'No se pudo crear el usuario' })
     const { data: user, error: userError } = await supabaseAdmin
       .from('users')
       .insert({ auth_id: authData.user.id, email, full_name, phone, role })
       .select().single()
-    if (userError) return res.status(400).json({ error: userError.message })
+    if (userError) return res.status(400).json({ error: 'No se pudo guardar el perfil del usuario' })
     if (role === 'driver') {
       await supabaseAdmin.from('drivers').insert({ user_id: user.id })
     }
     res.status(201).json({ message: 'Usuario creado', user })
   } catch(e) {
-    res.status(500).json({ error: e.message })
+    console.error('Create user error:', e)
+    res.status(500).json({ error: 'Error interno del servidor' })
   }
 })
 

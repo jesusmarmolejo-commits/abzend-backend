@@ -81,11 +81,11 @@ async function uploadToDrive() {
   console.log('FOLDER_ID:', process.env.GOOGLE_DRIVE_FOLDER_ID?.length, 'chars')
   const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
   const credentials = JSON.parse(rawCreds)
-  const client = await google.auth.getClient({
+  const auth = new google.auth.GoogleAuth({
     credentials,
     scopes: ['https://www.googleapis.com/auth/drive']
   })
-  const drive = google.drive({ version: 'v3', auth: client })
+  const drive = google.drive({ version: 'v3', auth })
 
   const folderRes = await drive.files.create({
     requestBody: {
@@ -152,5 +152,6 @@ async function main() {
 
 main().catch(e => {
   console.error('Error fatal en backup:', e.message)
+  console.error(e.stack)
   process.exit(1)
 })

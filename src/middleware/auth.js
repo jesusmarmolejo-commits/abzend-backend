@@ -35,22 +35,29 @@ export const requireRole = (...roles) => (req, res, next) => {
   }
   next();
 };
-// Sanitiza inputs para prevenir XSS y ataques de inyeccion
-export const sanitize = (req, res, next) => {
-  const clean = (obj) => {
-    if (!obj || typeof obj !== 'object') return
-    for (const key of Object.keys(obj)) {
-      if (typeof obj[key] === 'string') {
-        obj[key] = obj[key]
-          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-          .replace(/[<>]/g, '')
-          .trim()
-      } else if (typeof obj[key] === 'object') {
-        clean(obj[key])
-      }
+const MAX_STRING_LENGTH = 2000;
+
+function cleanValue(value) {
+  if (typeof value !== 'string') return value
+  return value
+    .replace(/[<>"'&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;', '&': '&amp;' }[c]))
+    .slice(0, MAX_STRING_LENGTH)
+    .trim()
+}
+
+function sanitizeObj(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 5) return
+  for (const key of Object.keys(obj)) {
+    if (typeof obj[key] === 'string') {
+      obj[key] = cleanValue(obj[key])
+    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+      sanitizeObj(obj[key], depth + 1)
     }
   }
-  clean(req.body)
-  clean(req.query)
+}
+
+export const sanitize = (req, res, next) => {
+  sanitizeObj(req.body)
+  sanitizeObj(req.query)
   next()
 }

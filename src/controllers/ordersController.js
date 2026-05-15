@@ -50,7 +50,8 @@ export const getOrders = async (req, res) => {
     if (error) throw error;
     res.json({ orders: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('getOrders error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -63,14 +64,21 @@ export const getOrder = async (req, res) => {
       .eq('id', req.params.id)
       .single();
 
-    if (error) return res.status(404).json({ error: 'Orden no encontrada' });
+    if (error || !data) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    // Clientes solo pueden ver sus propias órdenes
+    if (req.user.role === 'client' && data.client_id !== req.user.id) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+
     res.json({ order: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('getOrder error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
-// GET /orders/qr/:code — Repartidor escanea QR
+// GET /orders/qr/:code — Repartidor escanea QR (solo driver o admin)
 export const getOrderByQR = async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin
@@ -79,10 +87,11 @@ export const getOrderByQR = async (req, res) => {
       .eq('qr_code', req.params.code)
       .single();
 
-    if (error) return res.status(404).json({ error: 'Código QR no válido o paquete no encontrado' });
+    if (error || !data) return res.status(404).json({ error: 'Código QR no válido o paquete no encontrado' });
     res.json({ order: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('getOrderByQR error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -127,7 +136,8 @@ export const createOrder = async (req, res) => {
 
     res.status(201).json({ order: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('createOrder error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -185,7 +195,8 @@ export const updateStatus = async (req, res) => {
 
     res.json({ order: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('updateStatus error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -206,7 +217,8 @@ export const confirmPickup = async (req, res) => {
 
     res.json({ message: 'Recolección confirmada', orderId: order.id });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('confirmPickup error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
 
@@ -233,6 +245,7 @@ export const assignDriver = async (req, res) => {
 
     res.json({ order: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('assignDriver error:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 };
