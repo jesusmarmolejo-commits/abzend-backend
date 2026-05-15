@@ -1,0 +1,40 @@
+name: 🔄 Reset Demo Data
+
+on:
+  schedule:
+    - cron: '0 12 * * 1'   # Lunes 06:00 AM CDT (12:00 UTC)
+  workflow_dispatch:        # También se puede lanzar manualmente desde GitHub
+
+jobs:
+  reset-demo:
+    name: Resetear datos del ambiente demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      - name: Limpiar y resembrar datos demo
+        run: pnpm node demo-seed.js --clean
+        env:
+          SUPABASE_URL: ${{ secrets.DEMO_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.DEMO_SUPABASE_SERVICE_ROLE_KEY }}
+          NODE_ENV: demo
+          IS_DEMO: 'true'
+
+      - name: Notificar éxito
+        if: success()
+        run: echo "✅ Demo reseteado exitosamente el $(date)"
