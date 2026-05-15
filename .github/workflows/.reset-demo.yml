@@ -3,7 +3,7 @@ name: 🔄 Reset Demo Data
 on:
   schedule:
     - cron: '0 12 * * 1'   # Lunes 06:00 AM CDT (12:00 UTC)
-  workflow_dispatch:        # También se puede lanzar manualmente desde GitHub
+  workflow_dispatch:
 
 jobs:
   reset-demo:
@@ -17,7 +17,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -25,7 +25,7 @@ jobs:
           version: latest
 
       - name: Instalar dependencias
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Limpiar y resembrar datos demo
         run: pnpm node demo-seed.js --clean
