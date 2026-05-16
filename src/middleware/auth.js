@@ -35,3 +35,29 @@ export const requireRole = (...roles) => (req, res, next) => {
   }
   next();
 };
+const MAX_STRING_LENGTH = 2000;
+
+function cleanValue(value) {
+  if (typeof value !== 'string') return value
+  return value
+    .replace(/[<>"'&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;', '&': '&amp;' }[c]))
+    .slice(0, MAX_STRING_LENGTH)
+    .trim()
+}
+
+function sanitizeObj(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 5) return
+  for (const key of Object.keys(obj)) {
+    if (typeof obj[key] === 'string') {
+      obj[key] = cleanValue(obj[key])
+    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+      sanitizeObj(obj[key], depth + 1)
+    }
+  }
+}
+
+export const sanitize = (req, res, next) => {
+  sanitizeObj(req.body)
+  sanitizeObj(req.query)
+  next()
+}

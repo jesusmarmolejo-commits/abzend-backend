@@ -1,40 +1,5 @@
 import { supabaseAdmin } from '../services/supabase.js';
 
-// Calcular distancia entre dos coordenadas (fórmula Haversine)
-function getDistanceKm(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radio de la Tierra en km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-}
-
-// Enviar notificación "próximo en ruta" via Supabase Edge Function
-async function notifyNearDelivery(order, driverName) {
-  try {
-    const response = await fetch(`${process.env.SUPABASE_URL}/functions/v1/notify-near-delivery`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_KEY}`
-      },
-      body: JSON.stringify({
-        recipient_email: order.client.email,
-        recipient_name: order.client.full_name,
-        tracking_code: order.tracking_code,
-        driver_name: driverName,
-        estimated_minutes: 10
-      })
-    });
-    if (!response.ok) console.error('Error enviando notificación:', await response.text());
-  } catch (err) {
-    console.error('Error al notificar proximidad:', err.message);
-  }
-}
-
 // GET /orders — Admin: todas | Cliente: las suyas
 export const getOrders = async (req, res) => {
   try {
@@ -50,8 +15,7 @@ export const getOrders = async (req, res) => {
     if (error) throw error;
     res.json({ orders: data });
   } catch (err) {
-    console.error('getOrders error:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -64,21 +28,14 @@ export const getOrder = async (req, res) => {
       .eq('id', req.params.id)
       .single();
 
-    if (error || !data) return res.status(404).json({ error: 'Orden no encontrada' });
-
-    // Clientes solo pueden ver sus propias órdenes
-    if (req.user.role === 'client' && data.client_id !== req.user.id) {
-      return res.status(403).json({ error: 'Acceso denegado' });
-    }
-
+    if (error) return res.status(404).json({ error: 'Orden no encontrada' });
     res.json({ order: data });
   } catch (err) {
-    console.error('getOrder error:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: err.message });
   }
 };
 
-// GET /orders/qr/:code — Repartidor escanea QR (solo driver o admin)
+// GET /orders/qr/:code — Repartidor escanea QR
 export const getOrderByQR = async (req, res) => {
   try {
     const { data, error } = await supabaseAdmin
@@ -87,11 +44,10 @@ export const getOrderByQR = async (req, res) => {
       .eq('qr_code', req.params.code)
       .single();
 
-    if (error || !data) return res.status(404).json({ error: 'Código QR no válido o paquete no encontrado' });
+    if (error) return res.status(404).json({ error: 'Código QR no válido o paquete no encontrado' });
     res.json({ order: data });
   } catch (err) {
-    console.error('getOrderByQR error:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -111,12 +67,9 @@ export const createOrder = async (req, res) => {
     const tax = Math.round((subtotal + insurance_cost) * 0.16 * 100) / 100;
     const total = subtotal + insurance_cost + tax;
 
-    const tracking_code = `ABZ-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.random().toString(36).substr(2,8).toUpperCase()}`
-
     const { data, error } = await supabaseAdmin
       .from('orders')
       .insert({
-        tracking_code,
         client_id: req.user.id,
         sender_name, sender_phone, origin_address, origin_lat, origin_lng,
         recipient_name, recipient_phone, dest_address, dest_lat, dest_lng,
@@ -136,8 +89,7 @@ export const createOrder = async (req, res) => {
 
     res.status(201).json({ order: data });
   } catch (err) {
-    console.error('createOrder error:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -148,13 +100,6 @@ export const updateStatus = async (req, res) => {
   if (!VALID.includes(status)) return res.status(400).json({ error: 'Estado no válido' });
 
   try {
-    // Obtener datos completos de la orden antes de actualizar
-    const { data: orderData } = await supabaseAdmin
-      .from('orders')
-      .select('*, client:users!client_id(full_name, email), driver:drivers!driver_id(id, user:users(full_name))')
-      .eq('id', req.params.id)
-      .single();
-
     const extra = {};
     if (status === 'delivered') extra.delivered_at = new Date().toISOString();
 
@@ -173,30 +118,9 @@ export const updateStatus = async (req, res) => {
       created_by: req.user.id
     });
 
-    // NOTIFICACIÓN "PRÓXIMO EN RUTA" — Si está en tránsito y a <2km del destino
-    if (status === 'in_transit' && lat && lng && orderData?.dest_lat && orderData?.dest_lng) {
-      const distance = getDistanceKm(lat, lng, orderData.dest_lat, orderData.dest_lng);
-      
-      if (distance < 2) { // Menos de 2km = próximo a llegar
-        const driverName = orderData.driver?.user?.full_name || 'Tu repartidor';
-        await notifyNearDelivery(orderData, driverName);
-        
-        // Registrar evento de notificación
-        await supabaseAdmin.from('order_events').insert({
-          order_id: req.params.id,
-          status: 'in_transit',
-          status_code: 'NRD', // Near Delivery
-          note: `Cliente notificado: repartidor a ${distance.toFixed(1)}km del destino`,
-          lat, lng,
-          created_by: req.user.id
-        });
-      }
-    }
-
     res.json({ order: data });
   } catch (err) {
-    console.error('updateStatus error:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -217,8 +141,7 @@ export const confirmPickup = async (req, res) => {
 
     res.json({ message: 'Recolección confirmada', orderId: order.id });
   } catch (err) {
-    console.error('confirmPickup error:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: err.message });
   }
 };
 
@@ -245,7 +168,6 @@ export const assignDriver = async (req, res) => {
 
     res.json({ order: data });
   } catch (err) {
-    console.error('assignDriver error:', err);
-    res.status(500).json({ error: 'Error interno del servidor' });
+    res.status(500).json({ error: err.message });
   }
 };

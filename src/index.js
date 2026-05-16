@@ -9,6 +9,7 @@ import routes from './routes/index.js';
 import { supabaseAdmin } from './services/supabase.js';
 
 const app = express();
+app.set('trust proxy', 1);
 const httpServer = createServer(app);
 
 // ─────────────────────────────────────────────
@@ -16,13 +17,25 @@ const httpServer = createServer(app);
 // ─────────────────────────────────────────────
 app.use(helmet());
 app.use(morgan('dev'));
+if (!process.env.ALLOWED_ORIGINS) {
+  throw new Error('ALLOWED_ORIGINS no está definido. Configura los orígenes permitidos en las variables de entorno.');
+}
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  origin: process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()),
   credentials: true
 }));
 
-// Rate limiting — 100 requests por IP por 15 minutos
+// Rate limiting general — 100 requests por IP por 15 minutos
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100, message: { error: 'Demasiadas peticiones' } }));
+
+// Rate limiting estricto para auth — 10 intentos por IP por 15 minutos
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Demasiados intentos de inicio de sesión. Intenta de nuevo en 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Body parsers (el webhook de Stripe necesita raw antes de JSON)
 app.use('/v1/payments/webhook', express.raw({ type: 'application/json' }));
@@ -31,6 +44,7 @@ app.use(express.json({ limit: '10mb' }));
 // ─────────────────────────────────────────────
 // Rutas API
 // ─────────────────────────────────────────────
+app.use('/v1/auth', authLimiter);
 app.use('/v1', routes);
 
 // Health check

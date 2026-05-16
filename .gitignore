@@ -1,4 +1,2 @@
-﻿node_modules/
-.env
-*.log
-.DS_Store
+setup/credentials-summary.txt
+setup/pending-sql/

@@ -3,6 +3,13 @@
 -- Ejecuta esto en: Supabase Dashboard → SQL Editor → Run
 -- ═══════════════════════════════════════════════════════
 
+-- Tabla de control de migraciones aplicadas
+create table if not exists schema_migrations (
+  version     text primary key,
+  applied_at  timestamptz default now()
+);
+insert into schema_migrations (version) values ('001') on conflict do nothing;
+
 -- ─────────────────────────────────────────────
 -- 1. EXTENSIONES
 -- ─────────────────────────────────────────────
