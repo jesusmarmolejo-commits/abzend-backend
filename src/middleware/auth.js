@@ -10,20 +10,29 @@ export const authenticate = async (req, res, next) => {
 
   try {
     const token = auth.split(' ')[1];
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Cargar datos del usuario desde Supabase
-    const { data: user, error } = await supabaseAdmin
+    // Verificar el token directamente con Supabase
+    const { data: { user: authUser }, error: authError } = await supabaseAdmin.auth.getUser(token);
+
+    if (authError || !authUser) {
+      return res.status(401).json({ error: 'Token inválido o expirado' });
+    }
+
+    // Cargar datos del usuario desde la tabla users
+    const { data: user, error: userError } = await supabaseAdmin
       .from('users')
       .select('id, email, full_name, role')
-      .eq('id', payload.userId)
+      .eq('auth_id', authUser.id)
       .single();
 
-    if (error || !user) return res.status(401).json({ error: 'Usuario no encontrado' });
+    if (userError || !user) {
+      return res.status(401).json({ error: 'Usuario no encontrado' });
+    }
 
     req.user = user;
     next();
-  } catch {
+  } catch (error) {
+    console.error('Auth error:', error);
     return res.status(401).json({ error: 'Token inválido o expirado' });
   }
 };
