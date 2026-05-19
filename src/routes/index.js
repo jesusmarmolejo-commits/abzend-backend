@@ -40,7 +40,7 @@ router.get ('/payments/order/:id', authenticate, getPaymentStatus);
 
 // ─── Crear usuario desde panel admin ───────────
 router.post('/admin/users', authenticate, requireRole('admin'), sanitize, async (req, res) => {
-  const { email, password, full_name, phone, role = 'client' } = req.body
+  const { email, password, full_name, phone, role = 'client', cliente_id } = req.body
   try {
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email, password, email_confirm: true
@@ -48,18 +48,11 @@ router.post('/admin/users', authenticate, requireRole('admin'), sanitize, async 
     if (authError) return res.status(400).json({ error: authError.message })
     const { data: user, error: userError } = await supabaseAdmin
       .from('users')
-      .insert({ auth_id: authData.user.id, email, full_name, phone, role })
+      .insert({ auth_id: authData.user.id, email, full_name, phone, role, cliente_id })
       .select().single()
     if (userError) return res.status(400).json({ error: userError.message })
     if (role === 'driver') {
       await supabaseAdmin.from('drivers').insert({ user_id: user.id })
-    }
-    if (role === 'client') {
-      await supabaseAdmin.from('clientes').insert({
-        razon_social: full_name,
-        status: 'pendiente',
-        vendedor_id: req.user.id
-      })
     }
     res.status(201).json({ message: 'Usuario creado', user })
   } catch(e) {
