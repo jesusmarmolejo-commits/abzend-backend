@@ -4,7 +4,9 @@ import { login, register } from '../controllers/authController.js';
 import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver } from '../controllers/ordersController.js';
 import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers } from '../controllers/driversController.js';
 import { createPaymentIntent, stripeWebhook, getPaymentStatus } from '../controllers/paymentsController.js';
-import { authenticate, requireRole, sanitize, loginRateLimit, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js';
+import { authenticate, requireRole, sanitize, loginRateLimit, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js'
+import { apiKeyAuth } from '../middleware/apiKeyAuth.js'
+import { createBatch, createApiKey, listApiKeys, revokeApiKey, createWebhook, testWebhook } from '../controllers/apiBatchController.js';
 
 const router = express.Router();
 
@@ -92,5 +94,21 @@ router.post('/admin/users', authenticate, requireRole('admin','supervisor','gere
     res.status(500).json({ error: e.message });
   }
 });
+
+// ─── API Pública (autenticación por API Key) ────────────────────────────────
+router.post('/api/orders/batch',
+  apiKeyAuth('orders:create'),
+  sanitize,
+  createBatch
+)
+
+// ─── Gestión de API Keys (autenticación por sesión JWT) ─────────────────────
+router.get ('/client/api-keys',           authenticate, requireRole('client','admin'), listApiKeys)
+router.post('/client/api-keys',           authenticate, requireRole('client','admin'), sanitize, createApiKey)
+router.delete('/client/api-keys/:id',     authenticate, requireRole('client','admin'), revokeApiKey)
+
+// ─── Webhooks ────────────────────────────────────────────────────────────────
+router.post('/client/webhooks',           authenticate, requireRole('client','admin'), sanitize, createWebhook)
+router.post('/client/webhooks/:id/test',  authenticate, requireRole('client','admin'), testWebhook)
 
 export default router;
