@@ -100,8 +100,11 @@ export const createBatch = async (req, res) => {
 }
 
 export const createApiKey = async (req, res) => {
-  const { name, scopes = ['orders:create','orders:read'], expires_at } = req.body
+  const { name, scopes = ['orders:create','orders:read'], expires_at, client_id } = req.body
   if (!name?.trim()) return res.status(400).json({ error: 'name requerido' })
+
+  // Admin puede crear key para un cliente específico; si no, usa su propio ID
+  const targetClientId = client_id || req.user.id
 
   const prefix = 'abz_live_'
   const secret = crypto.randomBytes(24).toString('hex')
@@ -109,7 +112,7 @@ export const createApiKey = async (req, res) => {
   const hash    = crypto.createHash('sha256').update(fullKey).digest('hex')
 
   const { data, error } = await supabaseAdmin.from('api_keys').insert({
-    client_id:  req.user.id,
+    client_id:  targetClientId,
     name:       name.trim(),
     key_prefix: prefix,
     key_hash:   hash,
