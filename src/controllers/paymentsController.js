@@ -84,14 +84,25 @@ export const stripeWebhook = async (req, res) => {
 // GET /payments/order/:id — Estado del pago de una orden
 export const getPaymentStatus = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('orders')
-      .select('tracking_code, total, payment_status, stripe_payment_intent_id')
-      .eq('id', req.params.id)
-      .single();
+      .select('id, tracking_code, total, payment_status, stripe_payment_intent_id, client_id')
+      .eq('id', req.params.id);
 
-    if (error) return res.status(404).json({ error: 'Orden no encontrada' });
-    res.json(data);
+    // 🔒 SECURITY: Clients can only read payment status for their own orders (IDOR fix)
+    if (req.user.role === 'client') {
+      query = query.eq('client_id', req.user.id);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error || !data) {
+      // Return 404 for both "not found" and "unauthorized" to avoid enumeration
+      return res.status(404).json({ error: 'Orden no encontrada' });
+    }
+
+    const { id, client_id, ...paymentInfo } = data; // Exclude sensitive fields
+    res.json(paymentInfo);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -57,13 +57,23 @@ export const getOrders = async (req, res) => {
 // GET /orders/:id
 export const getOrder = async (req, res) => {
   try {
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('orders')
       .select(`*, client:users!client_id(*), driver:drivers!driver_id(*, user:users(*)), events:order_events(*)`)
-      .eq('id', req.params.id)
-      .single();
+      .eq('id', req.params.id);
 
-    if (error) return res.status(404).json({ error: 'Orden no encontrada' });
+    // 🔒 SECURITY: Clients can only read their own orders (IDOR fix)
+    if (req.user.role === 'client') {
+      query = query.eq('client_id', req.user.id);
+    }
+
+    const { data, error } = await query.single();
+
+    if (error || !data) {
+      // Return 404 for both "not found" and "unauthorized" to avoid enumeration
+      return res.status(404).json({ error: 'Orden no encontrada' });
+    }
+
     res.json({ order: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
