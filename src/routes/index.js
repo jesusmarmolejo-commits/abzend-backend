@@ -1,9 +1,10 @@
 import { supabaseAdmin } from '../services/supabase.js';
 import express from 'express';
 import { login, register } from '../controllers/authController.js';
-import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver } from '../controllers/ordersController.js';
+import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver, supervisorOverride } from '../controllers/ordersController.js';
 import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers } from '../controllers/driversController.js';
 import { createPaymentIntent, stripeWebhook, getPaymentStatus } from '../controllers/paymentsController.js';
+import { uploadPhoto, uploadSignature, uploadNote, confirmDeliveryWithProof, getEvidence, getEvidenceByType } from '../controllers/evidenceController.js';
 import { authenticate, requireRole, sanitize, loginRateLimit, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js'
 import { apiKeyAuth } from '../middleware/apiKeyAuth.js'
 import { createBatch, createApiKey, listApiKeys, revokeApiKey, createWebhook, testWebhook } from '../controllers/apiBatchController.js';
@@ -23,6 +24,15 @@ router.post('/orders',          authenticate, requireRole('client','admin','supe
 // ─── Órdenes (operaciones) ──────────────────────────────────────────────────
 router.post ('/orders/:id/pickup', authenticate, requireRole('driver','admin','supervisor'), confirmPickup);
 router.patch('/orders/:id/status', authenticate, requireRole('driver','admin','supervisor','station','gerente_operaciones'), updateStatus);
+router.post ('/orders/:id/override', authenticate, requireRole('admin','supervisor'), sanitize, supervisorOverride);
+
+// ─── Evidencia de Entregas (Fotos, Firma, Notas) ───────────────────────────────
+router.post ('/orders/:id/evidence/photo',         authenticate, requireRole('driver','admin','supervisor'), uploadPhoto);
+router.post ('/orders/:id/evidence/signature',     authenticate, requireRole('driver','admin','supervisor'), uploadSignature);
+router.post ('/orders/:id/evidence/note',          authenticate, requireRole('driver','admin','supervisor'), sanitize, uploadNote);
+router.post ('/orders/:id/confirm-with-proof',     authenticate, requireRole('driver','admin','supervisor'), confirmDeliveryWithProof);
+router.get  ('/orders/:id/evidence',               authenticate, getEvidence);
+router.get  ('/orders/:id/evidence/:type',         authenticate, getEvidenceByType);
 
 // ─── Admin ──────────────────────────────────────────────────────────────────
 router.post('/admin/orders/:id/assign', authenticate, requireRole('admin','supervisor','station','gerente_operaciones'), assignDriver);

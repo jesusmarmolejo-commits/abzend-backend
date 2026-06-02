@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../services/supabase.js';
 
 // Calcular distancia entre dos coordenadas (fórmula Haversine)
 function getDistanceKm(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radio de la Tierra en km
+  const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -70,7 +70,6 @@ export const getOrder = async (req, res) => {
     const { data, error } = await query.single();
 
     if (error || !data) {
-      // Return 404 for both "not found" and "unauthorized" to avoid enumeration
       return res.status(404).json({ error: 'Orden no encontrada' });
     }
 
@@ -98,41 +97,18 @@ export const getOrderByQR = async (req, res) => {
 
 // POST /orders — Cliente crea una nueva orden
 export const createOrder = async (req, res) => {
-  const {
-    sender_name, sender_phone, origin_address, origin_lat, origin_lng,
-    recipient_name, recipient_phone, dest_address, dest_lat, dest_lng,
-    package_type, weight_kg, service, instructions, has_insurance
-  } = req.body;
-
   try {
-    // Calcular precio
-    const prices = { standard: 95, express: 180, same_day: 280 };
-    const subtotal = prices[service] || 95;
-    const insurance_cost = has_insurance ? 25 : 0;
-    const tax = Math.round((subtotal + insurance_cost) * 0.16 * 100) / 100;
-    const total = subtotal + insurance_cost + tax;
-
-    const tracking_code = `ABZ-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Math.random().toString(36).substr(2,8).toUpperCase()}`
-
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .insert({
-        tracking_code,
-        client_id: req.user.id,
-        sender_name, sender_phone, origin_address, origin_lat, origin_lng,
-        recipient_name, recipient_phone, dest_address, dest_lat, dest_lng,
-        package_type, weight_kg, service, instructions, has_insurance,
-        subtotal, insurance_cost, tax, total
-      })
+      .insert({ ...req.body, client_id: req.user.id })
       .select()
       .single();
 
     if (error) throw error;
 
-    // Registrar evento inicial
     await supabaseAdmin.from('order_events').insert({
       order_id: data.id, status: 'pending',
-      note: 'Orden creada por cliente', created_by: req.user.id
+      note: 'Orden creada', created_by: req.user.id
     });
 
     res.status(201).json({ order: data });
@@ -144,7 +120,7 @@ export const createOrder = async (req, res) => {
 // PATCH /orders/:id/status — Actualizar estado (repartidor o admin)
 export const updateStatus = async (req, res) => {
   const { status, notes, lat, lng } = req.body;
-  const VALID = ['pending','assigned','picked_up','in_transit','delivered','failed','cancelled'];
+  const VALID = ['pending','assigned','picked_up','in_transit','delivered','failed','cancelled','regreso_a_cliente'];
   if (!VALID.includes(status)) return res.status(400).json({ error: 'Estado no válido' });
 
   try {
@@ -158,9 +134,20 @@ export const updateStatus = async (req, res) => {
     const extra = {};
     if (status === 'delivered') extra.delivered_at = new Date().toISOString();
 
+    // Lógica de intentos fallidos: incrementar contador y auto-escalar a regreso_a_cliente
+    let finalStatus = status;
+    if (status === 'failed') {
+      const currentIntentos = (orderData?.intentos_entrega || 0) + 1;
+      extra.intentos_entrega = currentIntentos;
+      if (currentIntentos >= 3) {
+        finalStatus = 'regreso_a_cliente';
+        extra.regreso_iniciado_at = new Date().toISOString();
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .update({ status, status_updated_at: new Date().toISOString(), ...extra })
+      .update({ status: finalStatus, status_updated_at: new Date().toISOString(), ...extra })
       .eq('id', req.params.id)
       .select()
       .single();
@@ -169,23 +156,32 @@ export const updateStatus = async (req, res) => {
 
     // Agregar evento al timeline
     await supabaseAdmin.from('order_events').insert({
-      order_id: req.params.id, status, note: notes, lat, lng,
+      order_id: req.params.id, status: finalStatus, note: notes, lat, lng,
       created_by: req.user.id
     });
+
+    // Auto-escalación — evento adicional si se alcanzó el límite de intentos
+    if (status === 'failed' && finalStatus === 'regreso_a_cliente') {
+      await supabaseAdmin.from('order_events').insert({
+        order_id: req.params.id,
+        status: 'regreso_a_cliente',
+        status_code: 'RTO',
+        note: '3 intentos fallidos — paquete en retorno al origen. Requiere override de supervisor.',
+        created_by: req.user.id
+      });
+    }
 
     // NOTIFICACIÓN "PRÓXIMO EN RUTA" — Si está en tránsito y a <2km del destino
     if (status === 'in_transit' && lat && lng && orderData?.dest_lat && orderData?.dest_lng) {
       const distance = getDistanceKm(lat, lng, orderData.dest_lat, orderData.dest_lng);
-      
-      if (distance < 2) { // Menos de 2km = próximo a llegar
+      if (distance < 2) {
         const driverName = orderData.driver?.user?.full_name || 'Tu repartidor';
         await notifyNearDelivery(orderData, driverName);
-        
-        // Registrar evento de notificación
+
         await supabaseAdmin.from('order_events').insert({
           order_id: req.params.id,
           status: 'in_transit',
-          status_code: 'NRD', // Near Delivery
+          status_code: 'NRD',
           note: `Cliente notificado: repartidor a ${distance.toFixed(1)}km del destino`,
           lat, lng,
           created_by: req.user.id
@@ -194,6 +190,56 @@ export const updateStatus = async (req, res) => {
     }
 
     res.json({ order: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /orders/:id/override — Supervisor fuerza reintento de entrega
+export const supervisorOverride = async (req, res) => {
+  const { motivo } = req.body;
+  if (!motivo || motivo.trim().length < 10) {
+    return res.status(400).json({ error: 'Se requiere un motivo de al menos 10 caracteres.' });
+  }
+
+  try {
+    const { data: order, error: fetchErr } = await supabaseAdmin
+      .from('orders')
+      .select('id, status, tracking_code, intentos_entrega')
+      .eq('id', req.params.id)
+      .single();
+
+    if (fetchErr || !order) return res.status(404).json({ error: 'Orden no encontrada' });
+    if (order.status !== 'regreso_a_cliente') {
+      return res.status(400).json({
+        error: `La orden no está en estado regreso_a_cliente (estado actual: ${order.status})`
+      });
+    }
+
+    const { data: updated, error: updErr } = await supabaseAdmin
+      .from('orders')
+      .update({
+        status: 'pending',
+        intentos_entrega: 0,
+        regreso_iniciado_at: null,
+        status_updated_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+
+    if (updErr) throw updErr;
+
+    // Audit trail completo en order_events
+    await supabaseAdmin.from('order_events').insert({
+      order_id: req.params.id,
+      status: 'pending',
+      status_code: 'LSR',
+      note: `[OVERRIDE SUPERVISOR] ${motivo.trim()} — Intentos reiniciados. Actor: ${req.user.email} (${req.user.role})`,
+      created_by: req.user.id
+    });
+
+    res.json({ order: updated, message: 'Override aplicado. Orden devuelta a Pendiente.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -238,7 +284,6 @@ export const assignDriver = async (req, res) => {
       note: `Asignado a repartidor`, created_by: req.user.id
     });
 
-    // Actualizar estado del driver a busy
     await supabaseAdmin.from('drivers').update({ status: 'busy' }).eq('id', driver_id);
 
     res.json({ order: data });
