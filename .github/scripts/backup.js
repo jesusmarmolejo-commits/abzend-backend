@@ -84,25 +84,20 @@ async function backupStorage() {
 
 async function uploadToDrive() {
   console.log('FOLDER_ID:', process.env.GOOGLE_DRIVE_FOLDER_ID?.length, 'chars')
-  const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8').trim()
-  if (!rawCreds || rawCreds.length < 10) {
-    throw new Error(`Credenciales Google vacías o inválidas (${rawCreds.length} chars)`)
-  }
-  let credentials
-  try {
-    credentials = JSON.parse(rawCreds)
-  } catch(e) {
-    throw new Error(`JSON inválido en credenciales Google: ${rawCreds.slice(0, 100)}`)
-  }
-  if (!credentials.client_email || !credentials.private_key) {
-    throw new Error(`Credenciales Google incompletas — faltan campos requeridos`)
-  }
-  const client = await google.auth.getClient({
-    credentials,
-    scopes: ['https://www.googleapis.com/auth/drive']
-  })
-  const drive = google.drive({ version: 'v3', auth: client })
 
+  const { google } = require('googleapis')
+
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  )
+  oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+  })
+
+  const drive = google.drive({ version: 'v3', auth: oauth2Client })
+
+  // Crear carpeta del día
   const folderRes = await drive.files.create({
     requestBody: {
       name: TODAY,
@@ -112,6 +107,7 @@ async function uploadToDrive() {
   })
   const dayFolderId = folderRes.data.id
 
+  // Subir todos los archivos
   const files = getAllFiles(BACKUP_DIR)
   for (const filePath of files) {
     const fileName = path.relative(BACKUP_DIR, filePath).replace(/[\/\\]/g, '_')
