@@ -67,6 +67,11 @@ async function backupStorage() {
         },
         body: JSON.stringify({ limit: 1000, offset: 0 })
       })
+      if (!listRes.ok) {
+        const text = await listRes.text()
+        console.log(`Storage ${bucket}: HTTP ${listRes.status} — ${text.slice(0,200)}`)
+        continue
+      }
       const files = await listRes.json()
       const manifest = { bucket, date: TODAY, files: Array.isArray(files) ? files.map(f => f.name) : [] }
       fs.writeFileSync(`${storageDir}/${bucket}-manifest.json`, JSON.stringify(manifest, null, 2))
@@ -143,11 +148,16 @@ async function main() {
   console.log('2. Backup Storage...')
   await backupStorage()
   console.log('3. Subiendo a Google Drive...')
-  const filesCount = await uploadToDrive()
-  if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `date=${TODAY}\nfiles_count=${filesCount}\n`)
+  try {
+    const filesCount = await uploadToDrive()
+    if (process.env.GITHUB_OUTPUT) {
+      fs.appendFileSync(process.env.GITHUB_OUTPUT, `date=${TODAY}\nfiles_count=${filesCount}\nstatus=success\n`)
+    }
+    console.log(`Backup completado exitosamente. ${filesCount} archivos subidos a Drive.`)
+  } catch(e) {
+    console.error('Error subiendo a Drive:', e.message)
+    process.exit(1)
   }
-  console.log(`Backup completado exitosamente. ${filesCount} archivos subidos a Drive.`)
 }
 
 main().catch(e => {
