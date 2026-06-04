@@ -65,7 +65,7 @@ async function backupStorage() {
           Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ limit: 1000, offset: 0 })
+        body: JSON.stringify({ limit: 1000, offset: 0, prefix: '' })
       })
       if (!listRes.ok) {
         const text = await listRes.text()
@@ -84,8 +84,19 @@ async function backupStorage() {
 
 async function uploadToDrive() {
   console.log('FOLDER_ID:', process.env.GOOGLE_DRIVE_FOLDER_ID?.length, 'chars')
-  const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')
-  const credentials = JSON.parse(rawCreds)
+  const rawCreds = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8').trim()
+  if (!rawCreds || rawCreds.length < 10) {
+    throw new Error(`Credenciales Google vacías o inválidas (${rawCreds.length} chars)`)
+  }
+  let credentials
+  try {
+    credentials = JSON.parse(rawCreds)
+  } catch(e) {
+    throw new Error(`JSON inválido en credenciales Google: ${rawCreds.slice(0, 100)}`)
+  }
+  if (!credentials.client_email || !credentials.private_key) {
+    throw new Error(`Credenciales Google incompletas — faltan campos requeridos`)
+  }
   const client = await google.auth.getClient({
     credentials,
     scopes: ['https://www.googleapis.com/auth/drive']
