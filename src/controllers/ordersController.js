@@ -291,3 +291,113 @@ export const assignDriver = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// PATCH /orders/:id/reassign — Reasignar orden a nuevo repartidor
+export const reassignOrder = async (req, res) => {
+  try {
+    const { driver_id, notas_reasignacion } = req.body;
+    const orderId = req.params.id;
+
+    if (!driver_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'driver_id es requerido'
+      });
+    }
+
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .select('*')
+      .eq('id', orderId)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({
+        success: false,
+        error: 'Orden no encontrada'
+      });
+    }
+
+    if (order.status === 'delivered' || order.status === 'cancelled') {
+      return res.status(403).json({
+        success: false,
+        error: `No se puede reasignar una orden con estado: ${order.status}`
+      });
+    }
+
+    const { data: driverUser, error: driverUserError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('id', driver_id)
+      .eq('role', 'driver')
+      .single();
+
+    const { data: driverRecord, error: driverRecordError } = await supabaseAdmin
+      .from('drivers')
+      .select('id')
+      .eq('id', driver_id)
+      .single();
+
+    if ((driverUserError && driverRecordError) || (!driverUser && !driverRecord)) {
+      return res.status(404).json({
+        success: false,
+        error: 'Repartidor no encontrado'
+      });
+    }
+
+    const updateData = {
+      status: 'pending',
+      driver_id,
+      status_updated_at: new Date().toISOString()
+    };
+
+    if (notas_reasignacion !== undefined) {
+      updateData.notas_reasignacion = notas_reasignacion;
+    }
+
+    const { data: updatedOrder, error: updateError } = await supabaseAdmin
+      .from('orders')
+      .update(updateData)
+      .eq('id', orderId)
+      .select('id, status, driver_id')
+      .single();
+
+    if (updateError) {
+      return res.status(500).json({
+        success: false,
+        error: 'Error al actualizar la orden'
+      });
+    }
+
+    const { error: eventError } = await supabaseAdmin
+      .from('order_events')
+      .insert({
+        order_id: orderId,
+        type: 'reassignment',
+        description: `Reasignado a nuevo repartidor por ${req.user.role}`,
+        created_by: req.user.id
+      });
+
+    if (eventError) {
+      return res.status(500).json({
+        success: false,
+        error: 'Error al registrar el evento de reasignación'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      order: {
+        id: updatedOrder.id,
+        status: updatedOrder.status,
+        driver_id: updatedOrder.driver_id
+      }
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
+    });
+  }
+};

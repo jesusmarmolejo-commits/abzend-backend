@@ -1,18 +1,19 @@
 import { supabaseAdmin } from '../services/supabase.js';
 import express from 'express';
 import { login, register } from '../controllers/authController.js';
-import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver, supervisorOverride } from '../controllers/ordersController.js';
+import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver, supervisorOverride, reassignOrder } from '../controllers/ordersController.js';
 import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers } from '../controllers/driversController.js';
 import { createPaymentIntent, stripeWebhook, getPaymentStatus } from '../controllers/paymentsController.js';
 import { uploadPhoto, uploadSignature, uploadNote, confirmDeliveryWithProof, getEvidence, getEvidenceByType } from '../controllers/evidenceController.js';
-import { authenticate, requireRole, sanitize, loginRateLimit, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js'
+import { authenticate, requireRole, sanitize, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js'
+import { loginRateLimitRedis, getRateLimitStats } from '../middleware/rateLimitRedis.js'
 import { apiKeyAuth } from '../middleware/apiKeyAuth.js'
 import { createBatch, createApiKey, listApiKeys, revokeApiKey, createWebhook, testWebhook } from '../controllers/apiBatchController.js';
 
 const router = express.Router();
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
-router.post('/auth/login',    loginRateLimit, sanitize, login);
+router.post('/auth/login',    loginRateLimitRedis, sanitize, login);
 router.post('/auth/register', authenticate, requireRole(...ROLE_GROUPS.admin_only), sanitize, register);
 
 // ─── Órdenes (cliente) ──────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ router.post('/orders',          authenticate, requireRole('client','admin','supe
 router.post ('/orders/:id/pickup', authenticate, requireRole('driver','admin','supervisor'), confirmPickup);
 router.patch('/orders/:id/status', authenticate, requireRole('driver','admin','supervisor','station','gerente_operaciones'), updateStatus);
 router.post ('/orders/:id/override', authenticate, requireRole('admin','supervisor'), sanitize, supervisorOverride);
+router.patch('/orders/:id/reassign', authenticate, requireRole('admin','supervisor','gerente_operaciones','station'), sanitize, reassignOrder);
 
 // ─── Evidencia de Entregas (Fotos, Firma, Notas) ───────────────────────────────
 router.post ('/orders/:id/evidence/photo',         authenticate, requireRole('driver','admin','supervisor'), uploadPhoto);
@@ -37,6 +39,7 @@ router.get  ('/orders/:id/evidence/:type',         authenticate, getEvidenceByTy
 // ─── Admin ──────────────────────────────────────────────────────────────────
 router.post('/admin/orders/:id/assign', authenticate, requireRole('admin','supervisor','station','gerente_operaciones'), assignDriver);
 router.get ('/admin/drivers',           authenticate, requireRole(...ROLE_GROUPS.all_staff), getAllDrivers);
+router.get ('/admin/rate-limit-stats',  authenticate, requireRole('admin'), getRateLimitStats);
 
 // ─── Repartidor (móvil) ─────────────────────────────────────────────────────
 router.get  ('/driver/orders',   authenticate, requireRole('driver'), getMyOrders);
