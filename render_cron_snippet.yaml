@@ -1,0 +1,8 @@
+- type: cron
+  name: geocode-retry
+  runtime: node
+  schedule: "0 * * * *"
+  buildCommand: pnpm install --frozen-lockfile
+  startCommand: node scripts/geocode_retry.mjs
+  envVars:
+    - fromGroup: abzend-backend-env
