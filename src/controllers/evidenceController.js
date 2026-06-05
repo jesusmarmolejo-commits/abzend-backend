@@ -1,7 +1,7 @@
 import { supabaseAdmin } from '../services/supabase.js';
 import Timber from 'timber';
 
-const logger = new Timber.logger = process.env.TIMBER_API_KEY ? new Timber.logger('evidenceController') : null;
+const logger = process.env.TIMBER_API_KEY ? new Timber.logger('evidenceController') : null;
 
 // Calcular distancia (Haversine) para geofence
 function getDistanceKm(lat1, lon1, lat2, lon2) {
