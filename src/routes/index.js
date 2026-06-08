@@ -9,6 +9,7 @@ import { authenticate, requireRole, sanitize, resetLoginAttempts, ROLE_GROUPS } 
 import { loginRateLimitRedis, getRateLimitStats } from '../middleware/rateLimitRedis.js'
 import { apiKeyAuth } from '../middleware/apiKeyAuth.js'
 import { createBatch, createApiKey, listApiKeys, revokeApiKey, createWebhook, testWebhook } from '../controllers/apiBatchController.js';
+import { getOrderDetail } from '../controllers/orderDetailController.js';
 
 const router = express.Router();
 
@@ -18,8 +19,9 @@ router.post('/auth/register', authenticate, requireRole(...ROLE_GROUPS.admin_onl
 
 // ─── Órdenes (cliente) ──────────────────────────────────────────────────────
 router.get ('/orders',          authenticate, getOrders);
-router.get ('/orders/qr/:code', authenticate, getOrderByQR);
-router.get ('/orders/:id',      authenticate, getOrder);
+router.get ('/orders/qr/:code',             authenticate, getOrderByQR);
+router.get ('/orders/:trackingCode/detail', authenticate, getOrderDetail);
+router.get ('/orders/:id',                 authenticate, getOrder);
 router.post('/orders',          authenticate, requireRole('client','admin','supervisor','gerente_comercial','gerente_operaciones'), sanitize, createOrder);
 
 // ─── Órdenes (operaciones) ──────────────────────────────────────────────────
