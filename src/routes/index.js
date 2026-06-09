@@ -10,6 +10,7 @@ import { loginRateLimitRedis, getRateLimitStats } from '../middleware/rateLimitR
 import { apiKeyAuth } from '../middleware/apiKeyAuth.js'
 import { createBatch, createApiKey, listApiKeys, revokeApiKey, createWebhook, testWebhook } from '../controllers/apiBatchController.js';
 import { getOrderDetail } from '../controllers/orderDetailController.js';
+import { getShipmentStatuses, reportFailed } from '../controllers/shipmentStatusController.js';
 
 const router = express.Router();
 
@@ -23,6 +24,10 @@ router.get ('/orders/qr/:code',             authenticate, getOrderByQR);
 router.get ('/orders/:trackingCode/detail', authenticate, getOrderDetail);
 router.get ('/orders/:id',                 authenticate, getOrder);
 router.post('/orders',          authenticate, requireRole('client','admin','supervisor','gerente_comercial','gerente_operaciones'), sanitize, createOrder);
+
+// ─── Catálogo de estados ────────────────────────────────────────────────────
+router.get ('/shipment-statuses',           getShipmentStatuses);
+router.post('/orders/:id/report-failed',    authenticate, requireRole('driver'), reportFailed);
 
 // ─── Órdenes (operaciones) ──────────────────────────────────────────────────
 router.post ('/orders/:id/pickup', authenticate, requireRole('driver','admin','supervisor'), confirmPickup);
