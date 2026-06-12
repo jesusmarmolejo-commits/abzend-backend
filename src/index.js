@@ -17,8 +17,25 @@ const httpServer = createServer(app);
 // ─────────────────────────────────────────────
 app.use(helmet());
 app.use(morgan('dev'));
+
+// 🔒 SECURITY (HIGH-01): CORS fail-closed.
+// Si ALLOWED_ORIGINS no está definida (o queda vacía tras trim), abortamos el
+// arranque: una API con credentials:true NUNCA debe caer a origin:'*'.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (allowedOrigins.length === 0) {
+  console.error('❌ ALLOWED_ORIGINS no está definida o está vacía.');
+  console.error('   La API no puede arrancar sin una lista explícita de orígenes permitidos (CORS fail-closed).');
+  console.error('   Configura ALLOWED_ORIGINS con los dominios separados por comas, ej:');
+  console.error('   ALLOWED_ORIGINS=https://abzend-panel-admin.vercel.app,https://abzend-panel-cliente.vercel.app');
+  process.exit(1);
+}
+
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+  origin: allowedOrigins,
   credentials: true
 }));
 
