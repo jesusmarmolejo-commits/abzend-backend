@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '../services/supabase.js';
+import { ROLE_GROUPS } from '../middleware/auth.js';
 
 // Calcular distancia (Haversine) para geofence
 function getDistanceKm(lat1, lon1, lat2, lon2) {
@@ -10,6 +11,35 @@ function getDistanceKm(lat1, lon1, lat2, lon2) {
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
+}
+
+// 🔒 SECURITY: Verifica que el usuario tenga acceso a la evidencia de esta orden (IDOR fix)
+export async function verifyOrderAccess(orderId, user) {
+  const { data: order, error } = await supabaseAdmin
+    .from('orders')
+    .select('id, client_id, driver_id')
+    .eq('id', orderId)
+    .single();
+
+  if (error || !order) return null;
+
+  if (ROLE_GROUPS.all_staff.includes(user.role)) return order;
+
+  if (user.role === 'client') {
+    return order.client_id === user.id ? order : null;
+  }
+
+  if (user.role === 'driver') {
+    const { data: driver } = await supabaseAdmin
+      .from('drivers')
+      .select('id')
+      .eq('user_id', user.id)
+      .single();
+
+    return driver && order.driver_id === driver.id ? order : null;
+  }
+
+  return null;
 }
 
 // Helper: Subir archivo a Supabase Storage
@@ -285,6 +315,9 @@ export const getEvidence = async (req, res) => {
   const { id: orderId } = req.params;
 
   try {
+    const order = await verifyOrderAccess(orderId, req.user);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+
     const { data: evidence, error } = await supabaseAdmin
       .from('delivery_evidence')
       .select('*')
@@ -310,6 +343,9 @@ export const getEvidenceByType = async (req, res) => {
   }
 
   try {
+    const order = await verifyOrderAccess(orderId, req.user);
+    if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
+
     const { data: evidence, error } = await supabaseAdmin
       .from('delivery_evidence')
       .select('*')
