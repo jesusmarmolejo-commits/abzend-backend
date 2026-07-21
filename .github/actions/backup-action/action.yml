@@ -1,0 +1,57 @@
+name: 'ABZEND Backup Action'
+description: 'Execute Supabase to Google Drive backup'
+
+inputs:
+  supabase_url:
+    description: 'Supabase project URL'
+    required: true
+  supabase_service_role_key:
+    description: 'Supabase service role key'
+    required: true
+  google_drive_folder_id:
+    description: 'Google Drive folder ID'
+    required: true
+  google_client_id:
+    description: 'Google OAuth2 Client ID'
+    required: true
+  google_client_secret:
+    description: 'Google OAuth2 Client Secret'
+    required: true
+  google_refresh_token:
+    description: 'Google OAuth2 Refresh Token'
+    required: true
+
+outputs:
+  date:
+    description: 'Backup date timestamp'
+    value: ${{ steps.backup.outputs.date }}
+  files_count:
+    description: 'Number of files backed up'
+    value: ${{ steps.backup.outputs.files_count }}
+  status:
+    description: 'Backup status'
+    value: ${{ steps.backup.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+
+    - name: Install dependencies
+      shell: bash
+      run: npm install googleapis
+
+    - name: Run backup
+      id: backup
+      shell: bash
+      env:
+        SUPABASE_URL: ${{ inputs.supabase_url }}
+        SUPABASE_SERVICE_ROLE_KEY: ${{ inputs.supabase_service_role_key }}
+        GOOGLE_DRIVE_FOLDER_ID: ${{ inputs.google_drive_folder_id }}
+        GOOGLE_CLIENT_ID: ${{ inputs.google_client_id }}
+        GOOGLE_CLIENT_SECRET: ${{ inputs.google_client_secret }}
+        GOOGLE_REFRESH_TOKEN: ${{ inputs.google_refresh_token }}
+      run: node .github/scripts/backup.js

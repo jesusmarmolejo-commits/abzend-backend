@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import routes from './routes/index.js';
 import { supabaseAdmin } from './services/supabase.js';
+import { initializeRedis } from './middleware/rateLimitRedis.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -89,10 +90,15 @@ const setupRealtimeListeners = () => {
 // Iniciar servidor
 // ─────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
+
+// Inicializar Redis antes de escuchar
+await initializeRedis();
+
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 ABZEND Backend corriendo en http://localhost:${PORT}`);
   console.log(`📦 Supabase URL: ${process.env.SUPABASE_URL}`);
-  console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configurado' : 'NO configurado'}\n`);
+  console.log(`💳 Stripe: ${process.env.STRIPE_SECRET_KEY ? 'Configurado' : 'NO configurado'}`);
+  console.log(`🔒 Rate Limiting: ${process.env.UPSTASH_REDIS_REST_URL ? 'Redis (Upstash)' : 'En memoria (fallback)'}\n`);
   setupRealtimeListeners();
 });
 

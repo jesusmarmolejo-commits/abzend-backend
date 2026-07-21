@@ -1,5 +1,21 @@
 import { supabaseAdmin } from '../services/supabase.js';
 
+// Geocodificar una dirección usando Nominatim (OpenStreetMap)
+async function geocodeAddress(addressString) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(addressString)}&countrycodes=mx`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'ABZEND/1.0 logistics@abzend.mx' }
+    });
+    if (!res.ok) return { lat: null, lng: null };
+    const results = await res.json();
+    if (!results.length) return { lat: null, lng: null };
+    return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+  } catch {
+    return { lat: null, lng: null };
+  }
+}
+
 // Calcular distancia entre dos coordenadas (fórmula Haversine)
 function getDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
@@ -98,9 +114,23 @@ export const getOrderByQR = async (req, res) => {
 // POST /orders — Cliente crea una nueva orden
 export const createOrder = async (req, res) => {
   try {
+    const geocoords = {};
+
+    if (req.body.dest_address) {
+      const { lat, lng } = await geocodeAddress(req.body.dest_address);
+      if (req.body.dest_lat == null) geocoords.dest_lat = lat;
+      if (req.body.dest_lng == null) geocoords.dest_lng = lng;
+    }
+
+    if (req.body.origin_address) {
+      const { lat, lng } = await geocodeAddress(req.body.origin_address);
+      if (req.body.origin_lat == null) geocoords.origin_lat = lat;
+      if (req.body.origin_lng == null) geocoords.origin_lng = lng;
+    }
+
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .insert({ ...req.body, client_id: req.user.id })
+      .insert({ ...req.body, ...geocoords, client_id: req.user.id })
       .select()
       .single();
 

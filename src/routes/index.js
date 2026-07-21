@@ -11,6 +11,10 @@ import { apiKeyAuth } from '../middleware/apiKeyAuth.js'
 import { createBatch, createApiKey, listApiKeys, revokeApiKey, createWebhook, testWebhook } from '../controllers/apiBatchController.js';
 import { getOrderDetail } from '../controllers/orderDetailController.js';
 import { getShipmentStatuses, reportFailed } from '../controllers/shipmentStatusController.js';
+import { scanReceive, getMyReceptions, getPendingReceptions, confirmReception, rejectReception } from '../controllers/packageReceptionsController.js';
+import { createVehicle, getMyVehicles, deactivateVehicle, getClientSubscription, patchVehicleLimit, subscriptionWebhook } from '../controllers/vehiclesController.js';
+import { addRouteGuide, getRouteGuides, removeRouteGuide } from '../controllers/routeGuidesController.js';
+import { requireActiveSubscription } from '../middleware/requireActiveSubscription.js';
 
 const router = express.Router();
 
@@ -53,6 +57,34 @@ router.get  ('/driver/orders',   authenticate, requireRole('driver'), getMyOrder
 router.get  ('/driver/history',  authenticate, requireRole('driver'), getHistory);
 router.patch('/driver/status',   authenticate, requireRole('driver'), updateDriverStatus);
 router.post ('/driver/location', authenticate, requireRole('driver'), updateLocation);
+
+// ─── Recepción de paquetes (escaneo sin asignación) ────────────────────────
+router.post('/driver/scan-receive', authenticate, requireRole('driver'), sanitize, scanReceive);
+router.get ('/driver/receptions',   authenticate, requireRole('driver'), getMyReceptions);
+
+router.get ('/admin/receptions/pending',    authenticate, requireRole(...ROLE_GROUPS.ops), getPendingReceptions);
+router.post('/admin/receptions/:id/confirm', authenticate, requireRole(...ROLE_GROUPS.ops), confirmReception);
+router.post('/admin/receptions/:id/reject',  authenticate, requireRole(...ROLE_GROUPS.ops), sanitize, rejectReception);
+
+// ─── Suscripción por vehículo (placas) ──────────────────────────────────────
+// Cliente autenticado: alta/baja/listado de sus placas. El tope se hace
+// cumplir en DB (trigger enforce_vehicle_limit) → alta excedida = 409.
+router.get   ('/vehicles',      authenticate, requireRole('client'), getMyVehicles);
+router.post  ('/vehicles',      authenticate, requireRole('client'), requireActiveSubscription, sanitize, createVehicle);
+router.delete('/vehicles/:id',  authenticate, requireRole('client'), deactivateVehicle);
+
+// Staff comercial/admin: vista de suscripción y override manual del tope.
+// vehicle_limit:write restringido a admin y gerente_comercial.
+router.get  ('/clients/:clientId/subscription',   authenticate, requireRole('admin','gerente_comercial'), getClientSubscription);
+router.patch('/clients/:clientId/vehicle-limit',  authenticate, requireRole('admin','gerente_comercial'), sanitize, patchVehicleLimit);
+
+// Webhook del proveedor de pago (auth por secreto compartido, sin JWT).
+router.post('/webhooks/subscription', subscriptionWebhook);
+
+// ─── Multi-guía por parada (route_items) ─────────────────────────────────────
+router.get   ('/route-stops/:stopId/guides',                authenticate, getRouteGuides);
+router.post  ('/route-stops/:stopId/guides',                authenticate, requireActiveSubscription, sanitize, addRouteGuide);
+router.delete('/route-stops/:stopId/guides/:guideLinkId',   authenticate, removeRouteGuide);
 
 // ─── Pagos / Stripe ─────────────────────────────────────────────────────────
 router.post('/payments/webhook',    express.raw({ type: 'application/json' }), stripeWebhook);

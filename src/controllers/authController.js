@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { supabaseAdmin } from '../services/supabase.js';
+import { resetLoginAttempts } from '../middleware/rateLimitRedis.js';
 
 const signToken = (userId) =>
   jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
@@ -37,6 +38,10 @@ export const login = async (req, res) => {
     }
 
     const token = signToken(user.id);
+
+    // Resetear intentos de login tras éxito
+    await resetLoginAttempts(req);
+
     res.json({ token, user: { ...user, driver: driverData } });
 
   } catch (err) {
