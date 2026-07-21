@@ -1,9 +1,9 @@
 import { supabaseAdmin } from '../services/supabase.js';
 
 // Estados de ruta que cuentan como "activa" para el anti-doble-ruteo.
-// La columna routes.status es texto libre; ajustar si el vocabulario real
-// difiere de la spec ('planned','in_progress').
-const ACTIVE_ROUTE_STATUSES = ['planned', 'in_progress'];
+// Vocabulario real en DB (routes.status): CREADA → EN_RUTA → COMPLETADA/CANCELADA.
+// "Activa" = aún no terminal (una guía no puede estar en dos rutas vivas).
+const ACTIVE_ROUTE_STATUSES = ['CREADA', 'EN_RUTA'];
 
 // ─────────────────────────────────────────────────────────────
 // Resolver de orden por guide_code — misma lógica que

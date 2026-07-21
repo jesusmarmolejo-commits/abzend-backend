@@ -14,6 +14,7 @@ import { getShipmentStatuses, reportFailed } from '../controllers/shipmentStatus
 import { scanReceive, getMyReceptions, getPendingReceptions, confirmReception, rejectReception } from '../controllers/packageReceptionsController.js';
 import { createVehicle, getMyVehicles, deactivateVehicle, getClientSubscription, patchVehicleLimit, subscriptionWebhook } from '../controllers/vehiclesController.js';
 import { addRouteGuide, getRouteGuides, removeRouteGuide } from '../controllers/routeGuidesController.js';
+import { createRoute, listRoutes, getRoute, addRouteItem, removeRouteItem, optimizeRoute, updateRouteStatus } from '../controllers/routesController.js';
 import { requireActiveSubscription } from '../middleware/requireActiveSubscription.js';
 
 const router = express.Router();
@@ -80,6 +81,15 @@ router.patch('/clients/:clientId/vehicle-limit',  authenticate, requireRole('adm
 
 // Webhook del proveedor de pago (auth por secreto compartido, sin JWT).
 router.post('/webhooks/subscription', subscriptionWebhook);
+
+// ─── Rutas (builder de ruteo por suscripción) ────────────────────────────────
+router.get   ('/routes',                 authenticate, requireRole('client'), listRoutes);
+router.post  ('/routes',                 authenticate, requireRole('client'), requireActiveSubscription, sanitize, createRoute);
+router.get   ('/routes/:id',             authenticate, requireRole('client'), getRoute);
+router.patch ('/routes/:id/status',      authenticate, requireRole('client'), sanitize, updateRouteStatus);
+router.post  ('/routes/:id/optimize',    authenticate, requireRole('client'), optimizeRoute);
+router.post  ('/routes/:id/items',       authenticate, requireRole('client'), requireActiveSubscription, sanitize, addRouteItem);
+router.delete('/routes/:id/items/:itemId', authenticate, requireRole('client'), removeRouteItem);
 
 // ─── Multi-guía por parada (route_items) ─────────────────────────────────────
 router.get   ('/route-stops/:stopId/guides',                authenticate, getRouteGuides);
