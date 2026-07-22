@@ -157,7 +157,7 @@ export const listClientDrivers = async (req, res) => {
 
     const { data: drivers, error } = await supabaseAdmin
       .from('drivers')
-      .select('id, status, license_plate, vehicle_type, user:user_id(full_name, email, phone)')
+      .select('id, status, active, operator_code, license_plate, vehicle_type, user:user_id(full_name, email, phone)')
       .eq('cliente_id', clienteId)
       .order('created_at', { ascending: true });
     if (error) throw error;
@@ -168,6 +168,8 @@ export const listClientDrivers = async (req, res) => {
       email: d.user?.email || null,
       phone: d.user?.phone || null,
       status: d.status,
+      active: d.active,
+      operator_code: d.operator_code,
       license_plate: d.license_plate,
     }));
 
@@ -230,7 +232,7 @@ export const createClientDriver = async (req, res) => {
     const { data: driver, error: driverError } = await supabaseAdmin
       .from('drivers')
       .insert(driverInsert)
-      .select('id')
+      .select('id, operator_code, active')
       .single();
     if (driverError) {
       try { await supabaseAdmin.from('users').delete().eq('id', user.id); } catch (_) {}
@@ -238,9 +240,100 @@ export const createClientDriver = async (req, res) => {
       return res.status(400).json({ error: driverError.message });
     }
 
-    return res.status(201).json({ driver: { id: driver.id, name: full_name, email } });
+    return res.status(201).json({
+      driver: { id: driver.id, name: full_name, email, operator_code: driver.operator_code, active: driver.active },
+    });
   } catch (err) {
     console.error('createClientDriver error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+// PATCH /client/drivers/:id — Habilitar/deshabilitar un repartidor de la flota.
+// Deshabilitar banea la cuenta auth (no puede iniciar sesion). body { active }.
+export const setClientDriverActive = async (req, res) => {
+  try {
+    const clienteId = await resolveClienteId(req.user.id);
+    if (!clienteId) {
+      return res.status(400).json({ error: 'El usuario no esta asociado a un cliente' });
+    }
+
+    const { data: driver, error: driverError } = await supabaseAdmin
+      .from('drivers')
+      .select('id, cliente_id, user_id')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (!driver || driverError) {
+      return res.status(404).json({ error: 'Repartidor no encontrado' });
+    }
+    if (driver.cliente_id !== clienteId) {
+      return res.status(403).json({ error: 'El repartidor no pertenece a tu flota' });
+    }
+
+    const active = req.body.active === true || req.body.active === 'true';
+
+    await supabaseAdmin.from('drivers').update({ active }).eq('id', driver.id);
+
+    const { data: userData } = await supabaseAdmin
+      .from('users').select('auth_id').eq('id', driver.user_id).maybeSingle();
+
+    if (userData?.auth_id) {
+      try {
+        await supabaseAdmin.auth.admin.updateUserById(userData.auth_id, {
+          ban_duration: active ? 'none' : '876000h',
+        });
+      } catch (banError) {
+        console.warn('Ban/unban failed:', banError);
+      }
+    }
+
+    return res.status(200).json({ driver: { id: driver.id, active } });
+  } catch (err) {
+    console.error('setClientDriverActive error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+// PATCH /client/drivers/:id/password — Cambiar la contrasena de un repartidor
+// de la flota. body { password }.
+export const setClientDriverPassword = async (req, res) => {
+  try {
+    const clienteId = await resolveClienteId(req.user.id);
+    if (!clienteId) {
+      return res.status(400).json({ error: 'El usuario no esta asociado a un cliente' });
+    }
+
+    const { data: driver, error: driverError } = await supabaseAdmin
+      .from('drivers')
+      .select('id, cliente_id, user_id')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (!driver || driverError) {
+      return res.status(404).json({ error: 'Repartidor no encontrado' });
+    }
+    if (driver.cliente_id !== clienteId) {
+      return res.status(403).json({ error: 'El repartidor no pertenece a tu flota' });
+    }
+
+    const password = String(req.body.password || '');
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'La contrasena debe tener al menos 6 caracteres' });
+    }
+
+    const { data: userData } = await supabaseAdmin
+      .from('users').select('auth_id').eq('id', driver.user_id).maybeSingle();
+    if (!userData?.auth_id) {
+      return res.status(404).json({ error: 'Cuenta del repartidor no encontrada' });
+    }
+
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(userData.auth_id, { password });
+    if (updateError) {
+      return res.status(400).json({ error: updateError.message });
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('setClientDriverPassword error:', err);
     return res.status(500).json({ error: err.message });
   }
 };

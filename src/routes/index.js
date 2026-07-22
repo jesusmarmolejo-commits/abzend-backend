@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../services/supabase.js';
 import express from 'express';
 import { login, register } from '../controllers/authController.js';
 import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver, supervisorOverride, reassignOrder } from '../controllers/ordersController.js';
-import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers, listClientDrivers, createClientDriver } from '../controllers/driversController.js';
+import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers, listClientDrivers, createClientDriver, setClientDriverActive, setClientDriverPassword } from '../controllers/driversController.js';
 import { createPaymentIntent, stripeWebhook, getPaymentStatus } from '../controllers/paymentsController.js';
 import { uploadPhoto, uploadSignature, uploadNote, confirmDeliveryWithProof, getEvidence, getEvidenceByType } from '../controllers/evidenceController.js';
 import { authenticate, requireRole, sanitize, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js'
@@ -95,6 +95,8 @@ router.patch ('/routes/:id/driver',      authenticate, requireRole('client'), sa
 // ─── Conductores del cliente (flota propia) ──────────────────────────────────
 router.get  ('/client/drivers', authenticate, requireRole('client'), listClientDrivers);
 router.post ('/client/drivers', authenticate, requireRole('client'), sanitize, createClientDriver);
+router.patch('/client/drivers/:id',          authenticate, requireRole('client'), sanitize, setClientDriverActive);
+router.patch('/client/drivers/:id/password', authenticate, requireRole('client'), sanitize, setClientDriverPassword);
 
 // ─── Multi-guía por parada (route_items) ─────────────────────────────────────
 router.get   ('/route-stops/:stopId/guides',                authenticate, getRouteGuides);

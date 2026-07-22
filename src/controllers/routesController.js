@@ -569,7 +569,7 @@ export const assignRouteDriver = async (req, res) => {
     // El repartidor debe existir y pertenecer a la flota del cliente
     const { data: driver, error: driverError } = await supabaseAdmin
       .from('drivers')
-      .select('id, cliente_id, status')
+      .select('id, cliente_id, status, active')
       .eq('id', driverId)
       .maybeSingle();
     if (driverError) throw driverError;
@@ -578,6 +578,9 @@ export const assignRouteDriver = async (req, res) => {
     }
     if (driver.cliente_id !== clienteId) {
       return res.status(403).json({ error: 'El repartidor no pertenece a tu flota' });
+    }
+    if (driver.active === false) {
+      return res.status(409).json({ error: 'REPARTIDOR_INACTIVO' });
     }
 
     // Guard: un repartidor no puede tener mas de una ruta activa (CREADA/EN_RUTA)
