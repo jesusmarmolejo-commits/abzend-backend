@@ -243,6 +243,58 @@ export const listRoutes = async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // GET /v1/routes/:id — detalle con paradas ordenadas y estado derivado.
 // ─────────────────────────────────────────────────────────────
+// Devuelve las guias de una parada (la principal + las agrupadas en
+// route_item_guides) con sus bultos, y el total de bultos de la parada.
+async function stopGuidesWithBultos(routeItem) {
+  const guideRefs = [];
+  const seenOrderIds = new Set();
+
+  if (routeItem.order_id) {
+    guideRefs.push({ order_id: routeItem.order_id, guide_link_id: null });
+    seenOrderIds.add(routeItem.order_id);
+  }
+
+  const { data: guidesData } = await supabaseAdmin
+    .from('route_item_guides')
+    .select('id, order_type, order_id')
+    .eq('route_item_id', routeItem.id)
+    .order('created_at', { ascending: true });
+
+  for (const row of guidesData || []) {
+    if ((row.order_type === 'paqueteria' || row.order_type === 'ltl') && !seenOrderIds.has(row.order_id)) {
+      guideRefs.push({ order_id: row.order_id, guide_link_id: row.id });
+      seenOrderIds.add(row.order_id);
+    }
+  }
+
+  const guides = [];
+  let stopBultosTotal = 0;
+
+  for (const ref of guideRefs) {
+    const { data: orderData } = await supabaseAdmin
+      .from('orders')
+      .select('tracking_code, recipient_name, dest_address, bultos(id, tipo, cantidad, descripcion)')
+      .eq('id', ref.order_id)
+      .maybeSingle();
+
+    const bultos = orderData?.bultos || [];
+    const bultosTotal = bultos.reduce((sum, b) => sum + (parseInt(b.cantidad, 10) || 0), 0);
+
+    guides.push({
+      guide_link_id: ref.guide_link_id,
+      order_id: ref.order_id,
+      tracking_code: orderData?.tracking_code ?? null,
+      recipient: orderData?.recipient_name ?? null,
+      address: orderData?.dest_address ?? null,
+      bultos,
+      bultos_total: bultosTotal,
+    });
+    stopBultosTotal += bultosTotal;
+  }
+
+  return { guides, bultos_total: stopBultosTotal };
+}
+
 export const getRoute = async (req, res) => {
   try {
     const clienteId = await resolveClienteId(req.user.id);
@@ -260,6 +312,7 @@ export const getRoute = async (req, res) => {
     const stops = [];
     for (const it of items || []) {
       const g = await itemGeoAndStatus(it);
+      const gb = await stopGuidesWithBultos(it);
       stops.push({
         ...it,
         lat: g.lat,
@@ -269,6 +322,8 @@ export const getRoute = async (req, res) => {
         address: g.address,
         recipient: g.recipient,
         stop_status: g.terminal ? 'completada' : 'pendiente',
+        guides: gb.guides,
+        bultos_total: gb.bultos_total,
       });
     }
 
