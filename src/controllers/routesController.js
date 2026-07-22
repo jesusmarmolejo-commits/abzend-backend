@@ -117,25 +117,34 @@ async function getOwnedRoute(routeId, clienteId) {
 const genRouteCode = () =>
   'RT-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
 
-// Coordenadas + estado terminal de un route_item (según su orden ancla).
+// Coordenadas + estado + datos legibles (tracking/dirección/destinatario) de un
+// route_item, según su orden ancla. Sirve para mostrar la parada en el builder.
 async function itemGeoAndStatus(item) {
   if (item.order_id) {
     const { data } = await supabaseAdmin
-      .from('orders').select('dest_lat, dest_lng, status').eq('id', item.order_id).maybeSingle();
+      .from('orders')
+      .select('tracking_code, dest_address, recipient_name, dest_lat, dest_lng, status')
+      .eq('id', item.order_id).maybeSingle();
     return {
       lat: data?.dest_lat ?? null,
       lng: data?.dest_lng ?? null,
       terminal: data ? TERMINAL_ORDER_STATUS.includes(data.status) : false,
       order_status: data?.status ?? null,
+      tracking_code: data?.tracking_code ?? null,
+      address: data?.dest_address ?? null,
+      recipient: data?.recipient_name ?? null,
     };
   }
   if (item.transport_order_id) {
     const { data } = await supabaseAdmin
-      .from('transport_orders').select('status').eq('id', item.transport_order_id).maybeSingle();
-    // FTL sin coords en Fase 1
-    return { lat: null, lng: null, terminal: false, order_status: data?.status ?? null };
+      .from('transport_orders').select('tracking_code, ruta, status').eq('id', item.transport_order_id).maybeSingle();
+    // FTL sin coords en Fase 1; su "dirección" es la ruta textual.
+    return {
+      lat: null, lng: null, terminal: false, order_status: data?.status ?? null,
+      tracking_code: data?.tracking_code ?? null, address: data?.ruta ?? null, recipient: null,
+    };
   }
-  return { lat: null, lng: null, terminal: false, order_status: null };
+  return { lat: null, lng: null, terminal: false, order_status: null, tracking_code: null, address: null, recipient: null };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -256,6 +265,9 @@ export const getRoute = async (req, res) => {
         lat: g.lat,
         lng: g.lng,
         order_status: g.order_status,
+        tracking_code: g.tracking_code,
+        address: g.address,
+        recipient: g.recipient,
         stop_status: g.terminal ? 'completada' : 'pendiente',
       });
     }
