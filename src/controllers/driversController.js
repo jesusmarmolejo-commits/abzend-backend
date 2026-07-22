@@ -1,5 +1,12 @@
 import { supabaseAdmin } from '../services/supabase.js';
 
+// cliente (clientes.id) dueño de un usuario dado (users.id)
+async function resolveClienteId(userId) {
+  const { data } = await supabaseAdmin
+    .from('users').select('cliente_id').eq('id', userId).single();
+  return data?.cliente_id ?? null;
+}
+
 // GET /driver/orders — Órdenes asignadas al repartidor autenticado
 export const getMyOrders = async (req, res) => {
   try {
@@ -137,5 +144,90 @@ export const getAllDrivers = async (req, res) => {
     res.json({ drivers: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /client/drivers — Repartidores de la flota del cliente autenticado
+export const listClientDrivers = async (req, res) => {
+  try {
+    const clienteId = await resolveClienteId(req.user.id);
+    if (!clienteId) {
+      return res.status(400).json({ error: 'El usuario no esta asociado a un cliente' });
+    }
+
+    const { data: drivers, error } = await supabaseAdmin
+      .from('drivers')
+      .select('id, status, license_plate, vehicle_type, user:user_id(full_name, email, phone)')
+      .eq('cliente_id', clienteId)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+
+    const mapped = (drivers || []).map((d) => ({
+      id: d.id,
+      name: d.user?.full_name || null,
+      email: d.user?.email || null,
+      phone: d.user?.phone || null,
+      status: d.status,
+      license_plate: d.license_plate,
+    }));
+
+    return res.status(200).json({ drivers: mapped });
+  } catch (err) {
+    console.error('listClientDrivers error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /client/drivers/link — Liga un repartidor EXISTENTE (por email) a la
+// flota del cliente. No crea cuentas. body { email }.
+export const linkClientDriver = async (req, res) => {
+  try {
+    const clienteId = await resolveClienteId(req.user.id);
+    if (!clienteId) {
+      return res.status(400).json({ error: 'El usuario no esta asociado a un cliente' });
+    }
+
+    const email = String(req.body.email || '').trim();
+    if (!email) {
+      return res.status(400).json({ error: 'email requerido' });
+    }
+
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('id, role, full_name, email')
+      .ilike('email', email)
+      .maybeSingle();
+    if (userError) throw userError;
+    if (!user || user.role !== 'driver') {
+      return res.status(404).json({ error: 'No existe un repartidor con ese correo' });
+    }
+
+    const { data: driver, error: driverError } = await supabaseAdmin
+      .from('drivers')
+      .select('id, cliente_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (driverError) throw driverError;
+    if (!driver) {
+      return res.status(404).json({ error: 'Ese usuario no tiene perfil de repartidor' });
+    }
+
+    if (driver.cliente_id && driver.cliente_id !== clienteId) {
+      return res.status(409).json({ error: 'El repartidor ya pertenece a otra flota' });
+    }
+    if (driver.cliente_id === clienteId) {
+      return res.status(200).json({ driver: { id: driver.id, name: user.full_name, email: user.email }, already: true });
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from('drivers')
+      .update({ cliente_id: clienteId })
+      .eq('id', driver.id);
+    if (updateError) throw updateError;
+
+    return res.status(200).json({ driver: { id: driver.id, name: user.full_name, email: user.email } });
+  } catch (err) {
+    console.error('linkClientDriver error:', err);
+    return res.status(500).json({ error: err.message });
   }
 };

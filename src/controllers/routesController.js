@@ -482,3 +482,71 @@ export const updateRouteStatus = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
+
+// PATCH /routes/:id/driver — Asignar (o desasignar) repartidor de la flota del
+// cliente a una ruta. body { driver_id }  (driver_id null para desasignar).
+export const assignRouteDriver = async (req, res) => {
+  try {
+    const clienteId = await resolveClienteId(req.user.id);
+    if (!clienteId) {
+      return res.status(400).json({ error: 'El usuario no esta asociado a un cliente' });
+    }
+
+    const route = await getOwnedRoute(req.params.id, clienteId);
+    if (!route) {
+      return res.status(404).json({ error: 'Ruta no encontrada' });
+    }
+
+    const driverId = req.body.driver_id ?? null;
+
+    // Desasignar
+    if (driverId === null) {
+      const { data, error } = await supabaseAdmin
+        .from('routes')
+        .update({ driver_id: null })
+        .eq('id', route.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return res.status(200).json({ route: data });
+    }
+
+    // El repartidor debe existir y pertenecer a la flota del cliente
+    const { data: driver, error: driverError } = await supabaseAdmin
+      .from('drivers')
+      .select('id, cliente_id, status')
+      .eq('id', driverId)
+      .maybeSingle();
+    if (driverError) throw driverError;
+    if (!driver) {
+      return res.status(404).json({ error: 'Repartidor no encontrado' });
+    }
+    if (driver.cliente_id !== clienteId) {
+      return res.status(403).json({ error: 'El repartidor no pertenece a tu flota' });
+    }
+
+    // Guard: un repartidor no puede tener mas de una ruta activa (CREADA/EN_RUTA)
+    const { data: activeRoutes, error: activeError } = await supabaseAdmin
+      .from('routes')
+      .select('id')
+      .eq('driver_id', driverId)
+      .in('status', ['CREADA', 'EN_RUTA'])
+      .neq('id', route.id);
+    if (activeError) throw activeError;
+    if (activeRoutes && activeRoutes.length > 0) {
+      return res.status(409).json({ error: 'REPARTIDOR_CON_RUTA_ACTIVA', route_id: activeRoutes[0].id });
+    }
+
+    const { data: updatedRoute, error: updateError } = await supabaseAdmin
+      .from('routes')
+      .update({ driver_id: driverId })
+      .eq('id', route.id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+    return res.status(200).json({ route: updatedRoute });
+  } catch (err) {
+    console.error('assignRouteDriver error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+};

@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../services/supabase.js';
 import express from 'express';
 import { login, register } from '../controllers/authController.js';
 import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver, supervisorOverride, reassignOrder } from '../controllers/ordersController.js';
-import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers } from '../controllers/driversController.js';
+import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers, listClientDrivers, linkClientDriver } from '../controllers/driversController.js';
 import { createPaymentIntent, stripeWebhook, getPaymentStatus } from '../controllers/paymentsController.js';
 import { uploadPhoto, uploadSignature, uploadNote, confirmDeliveryWithProof, getEvidence, getEvidenceByType } from '../controllers/evidenceController.js';
 import { authenticate, requireRole, sanitize, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js'
@@ -14,7 +14,7 @@ import { getShipmentStatuses, reportFailed } from '../controllers/shipmentStatus
 import { scanReceive, getMyReceptions, getPendingReceptions, confirmReception, rejectReception } from '../controllers/packageReceptionsController.js';
 import { createVehicle, getMyVehicles, deactivateVehicle, getClientSubscription, patchVehicleLimit, subscriptionWebhook } from '../controllers/vehiclesController.js';
 import { addRouteGuide, getRouteGuides, removeRouteGuide } from '../controllers/routeGuidesController.js';
-import { createRoute, listRoutes, getRoute, addRouteItem, removeRouteItem, optimizeRoute, updateRouteStatus } from '../controllers/routesController.js';
+import { createRoute, listRoutes, getRoute, addRouteItem, removeRouteItem, optimizeRoute, updateRouteStatus, assignRouteDriver } from '../controllers/routesController.js';
 import { requireActiveSubscription } from '../middleware/requireActiveSubscription.js';
 
 const router = express.Router();
@@ -90,6 +90,11 @@ router.patch ('/routes/:id/status',      authenticate, requireRole('client'), sa
 router.post  ('/routes/:id/optimize',    authenticate, requireRole('client'), optimizeRoute);
 router.post  ('/routes/:id/items',       authenticate, requireRole('client'), requireActiveSubscription, sanitize, addRouteItem);
 router.delete('/routes/:id/items/:itemId', authenticate, requireRole('client'), removeRouteItem);
+router.patch ('/routes/:id/driver',      authenticate, requireRole('client'), sanitize, assignRouteDriver);
+
+// ─── Conductores del cliente (flota propia) ──────────────────────────────────
+router.get  ('/client/drivers',      authenticate, requireRole('client'), listClientDrivers);
+router.post ('/client/drivers/link', authenticate, requireRole('client'), sanitize, linkClientDriver);
 
 // ─── Multi-guía por parada (route_items) ─────────────────────────────────────
 router.get   ('/route-stops/:stopId/guides',                authenticate, getRouteGuides);
