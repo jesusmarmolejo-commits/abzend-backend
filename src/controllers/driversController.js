@@ -178,56 +178,69 @@ export const listClientDrivers = async (req, res) => {
   }
 };
 
-// POST /client/drivers/link — Liga un repartidor EXISTENTE (por email) a la
-// flota del cliente. No crea cuentas. body { email }.
-export const linkClientDriver = async (req, res) => {
+// POST /client/drivers — Crea un repartidor NUEVO (cuenta auth + users + drivers)
+// ligado a la flota del cliente. body { email, password, full_name, phone,
+// license_plate?, vehicle_type? }. Rollback best-effort si algo falla.
+export const createClientDriver = async (req, res) => {
   try {
     const clienteId = await resolveClienteId(req.user.id);
     if (!clienteId) {
       return res.status(400).json({ error: 'El usuario no esta asociado a un cliente' });
     }
 
-    const email = String(req.body.email || '').trim();
-    if (!email) {
-      return res.status(400).json({ error: 'email requerido' });
+    const { email, password, full_name, phone, license_plate, vehicle_type } = req.body;
+
+    if (!email || !password || !full_name) {
+      return res.status(400).json({ error: 'email, password y full_name son requeridos' });
+    }
+
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+    if (authError) {
+      return res.status(400).json({ error: authError.message });
     }
 
     const { data: user, error: userError } = await supabaseAdmin
       .from('users')
-      .select('id, role, full_name, email')
-      .ilike('email', email)
-      .maybeSingle();
-    if (userError) throw userError;
-    if (!user || user.role !== 'driver') {
-      return res.status(404).json({ error: 'No existe un repartidor con ese correo' });
+      .insert({
+        auth_id: authData.user.id,
+        email,
+        full_name,
+        phone: phone || null,
+        role: 'driver',
+        cliente_id: clienteId,
+      })
+      .select()
+      .single();
+    if (userError) {
+      try { await supabaseAdmin.auth.admin.deleteUser(authData.user.id); } catch (_) {}
+      return res.status(400).json({ error: userError.message });
     }
+
+    const driverInsert = {
+      user_id: user.id,
+      cliente_id: clienteId,
+      license_plate: license_plate || null,
+    };
+    if (vehicle_type) driverInsert.vehicle_type = vehicle_type;
 
     const { data: driver, error: driverError } = await supabaseAdmin
       .from('drivers')
-      .select('id, cliente_id')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (driverError) throw driverError;
-    if (!driver) {
-      return res.status(404).json({ error: 'Ese usuario no tiene perfil de repartidor' });
+      .insert(driverInsert)
+      .select('id')
+      .single();
+    if (driverError) {
+      try { await supabaseAdmin.from('users').delete().eq('id', user.id); } catch (_) {}
+      try { await supabaseAdmin.auth.admin.deleteUser(authData.user.id); } catch (_) {}
+      return res.status(400).json({ error: driverError.message });
     }
 
-    if (driver.cliente_id && driver.cliente_id !== clienteId) {
-      return res.status(409).json({ error: 'El repartidor ya pertenece a otra flota' });
-    }
-    if (driver.cliente_id === clienteId) {
-      return res.status(200).json({ driver: { id: driver.id, name: user.full_name, email: user.email }, already: true });
-    }
-
-    const { error: updateError } = await supabaseAdmin
-      .from('drivers')
-      .update({ cliente_id: clienteId })
-      .eq('id', driver.id);
-    if (updateError) throw updateError;
-
-    return res.status(200).json({ driver: { id: driver.id, name: user.full_name, email: user.email } });
+    return res.status(201).json({ driver: { id: driver.id, name: full_name, email } });
   } catch (err) {
-    console.error('linkClientDriver error:', err);
+    console.error('createClientDriver error:', err);
     return res.status(500).json({ error: err.message });
   }
 };
