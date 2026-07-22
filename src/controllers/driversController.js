@@ -337,3 +337,77 @@ export const setClientDriverPassword = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
+
+// ─── ADMIN (ABZEND global, cualquier repartidor, sin scoping de cliente) ─────
+
+// PATCH /admin/drivers/:id — habilitar/deshabilitar (+ ban/unban auth). body { active }.
+export const setAdminDriverActive = async (req, res) => {
+  try {
+    const { data: driver, error: driverError } = await supabaseAdmin
+      .from('drivers')
+      .select('id, user_id')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (!driver || driverError) {
+      return res.status(404).json({ error: 'Repartidor no encontrado' });
+    }
+
+    const active = req.body.active === true || req.body.active === 'true';
+
+    const { error: updateError } = await supabaseAdmin
+      .from('drivers').update({ active }).eq('id', driver.id);
+    if (updateError) throw updateError;
+
+    const { data: user } = await supabaseAdmin
+      .from('users').select('auth_id').eq('id', driver.user_id).maybeSingle();
+    if (user?.auth_id) {
+      try {
+        await supabaseAdmin.auth.admin.updateUserById(user.auth_id, {
+          ban_duration: active ? 'none' : '876000h',
+        });
+      } catch (e) {
+        console.warn('Ban/unban failed:', e);
+      }
+    }
+
+    return res.status(200).json({ driver: { id: driver.id, active } });
+  } catch (err) {
+    console.error('setAdminDriverActive error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+// PATCH /admin/drivers/:id/password — cambiar contrasena. body { password }.
+export const setAdminDriverPassword = async (req, res) => {
+  try {
+    const { data: driver, error: driverError } = await supabaseAdmin
+      .from('drivers')
+      .select('id, user_id')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (!driver || driverError) {
+      return res.status(404).json({ error: 'Repartidor no encontrado' });
+    }
+
+    const password = String(req.body.password || '');
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'La contrasena debe tener al menos 6 caracteres' });
+    }
+
+    const { data: user } = await supabaseAdmin
+      .from('users').select('auth_id').eq('id', driver.user_id).maybeSingle();
+    if (!user?.auth_id) {
+      return res.status(404).json({ error: 'Cuenta del repartidor no encontrada' });
+    }
+
+    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.auth_id, { password });
+    if (updateError) {
+      return res.status(400).json({ error: updateError.message });
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    console.error('setAdminDriverPassword error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+};

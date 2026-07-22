@@ -2,7 +2,7 @@ import { supabaseAdmin } from '../services/supabase.js';
 import express from 'express';
 import { login, register } from '../controllers/authController.js';
 import { getOrders, getOrder, getOrderByQR, createOrder, updateStatus, confirmPickup, assignDriver, supervisorOverride, reassignOrder } from '../controllers/ordersController.js';
-import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers, listClientDrivers, createClientDriver, setClientDriverActive, setClientDriverPassword } from '../controllers/driversController.js';
+import { getMyOrders, getHistory, updateDriverStatus, updateLocation, getAllDrivers, listClientDrivers, createClientDriver, setClientDriverActive, setClientDriverPassword, setAdminDriverActive, setAdminDriverPassword } from '../controllers/driversController.js';
 import { createPaymentIntent, stripeWebhook, getPaymentStatus } from '../controllers/paymentsController.js';
 import { uploadPhoto, uploadSignature, uploadNote, confirmDeliveryWithProof, getEvidence, getEvidenceByType } from '../controllers/evidenceController.js';
 import { authenticate, requireRole, sanitize, resetLoginAttempts, ROLE_GROUPS } from '../middleware/auth.js'
@@ -51,6 +51,8 @@ router.get  ('/orders/:id/evidence/:type',         authenticate, getEvidenceByTy
 // ─── Admin ──────────────────────────────────────────────────────────────────
 router.post('/admin/orders/:id/assign', authenticate, requireRole('admin','supervisor','station','gerente_operaciones'), assignDriver);
 router.get ('/admin/drivers',           authenticate, requireRole(...ROLE_GROUPS.all_staff), getAllDrivers);
+router.patch('/admin/drivers/:id',          authenticate, requireRole('admin','supervisor','gerente_operaciones'), sanitize, setAdminDriverActive);
+router.patch('/admin/drivers/:id/password', authenticate, requireRole('admin','supervisor','gerente_operaciones'), sanitize, setAdminDriverPassword);
 router.get ('/admin/rate-limit-stats',  authenticate, requireRole('admin'), getRateLimitStats);
 
 // ─── Repartidor (móvil) ─────────────────────────────────────────────────────
