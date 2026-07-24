@@ -213,7 +213,7 @@ export const uploadNote = async (req, res) => {
 // POST /v1/orders/:id/confirm-with-proof (TRANSACCIÓN ATÓMICA)
 export const confirmDeliveryWithProof = async (req, res) => {
   const { id: orderId } = req.params;
-  const { photoBase64, signatureBase64, deliveryNote, lat, lng } = req.body;
+  const { photoBase64, signatureBase64, deliveryNote, lat, lng, receiverName, receiverType } = req.body;
 
   if (!photoBase64 || !signatureBase64) {
     return res.status(400).json({ error: 'Se requieren foto y firma' });
@@ -230,16 +230,15 @@ export const confirmDeliveryWithProof = async (req, res) => {
     if (!order) return res.status(404).json({ error: 'Orden no encontrada' });
     if (order.status === 'delivered') return res.status(400).json({ error: 'Orden ya entregada' });
 
-    // 2. Validar geofence (10 metros = 0.01 km aproximadamente)
+    // 2. Geocerca: NO bloquea la entrega (decision Jesus, 2026-07-22). Puede
+    //    haber señal GPS débil o el domicilio mal geocodificado; se permite
+    //    entregar y se REGISTRA la distancia + la marca de fuera de cobertura.
+    const COVERAGE_RADIUS_M = 10;
+    let distanceMeters = null;
+    let outOfCoverage = false;
     if (lat && lng && order.dest_lat && order.dest_lng) {
-      const distanceKm = getDistanceKm(lat, lng, order.dest_lat, order.dest_lng);
-      const distanceMeters = distanceKm * 1000;
-
-      if (distanceMeters > 10) {
-        return res.status(400).json({
-          error: `Estás fuera del área de entrega (${distanceMeters.toFixed(0)}m > 10m)`
-        });
-      }
+      distanceMeters = getDistanceKm(lat, lng, order.dest_lat, order.dest_lng) * 1000;
+      outOfCoverage = distanceMeters > COVERAGE_RADIUS_M;
     }
 
     // 3. Subir fotos en paralelo
@@ -266,6 +265,27 @@ export const confirmDeliveryWithProof = async (req, res) => {
 
     if (evidenceError) throw evidenceError;
 
+    // 4.b Registrar la POD (proof_of_delivery) con la UBICACION GPS donde se
+    //     cerro la entrega. receiver_name y receiver_type son NOT NULL, por eso
+    //     llevan default si la app aun no los envia. Fail-soft: un problema aqui
+    //     no debe tumbar la entrega ya registrada.
+    const { data: pod, error: podError } = await supabaseAdmin
+      .from('proof_of_delivery')
+      .insert({
+        order_id: orderId,
+        receiver_name: receiverName || 'No especificado',
+        receiver_type: receiverType || 'otro',
+        photo_1: photoUrl,
+        signature: signatureUrl,
+        lat: lat ?? null,
+        lng: lng ?? null,
+        created_by: req.user.id
+      })
+      .select()
+      .single();
+
+    if (podError) console.error('Error registrando POD:', podError.message);
+
     // 5. Actualizar orden a 'delivered'
     const { data: updatedOrder, error: updateError } = await supabaseAdmin
       .from('orders')
@@ -288,7 +308,11 @@ export const confirmDeliveryWithProof = async (req, res) => {
       .insert({
         order_id: orderId,
         status: 'delivered',
-        note: `✅ Entregado con evidencia (foto + firma + nota). ${deliveryNote ? `Nota: ${deliveryNote}` : ''}`,
+        note: `✅ Entregado con evidencia (foto + firma + nota).` +
+          (deliveryNote ? ` Nota: ${deliveryNote}` : '') +
+          (distanceMeters != null
+            ? ` · GPS a ${distanceMeters.toFixed(0)}m del destino${outOfCoverage ? ' — FUERA DE COBERTURA' : ''}`
+            : ' · Sin coordenadas GPS'),
         lat: lat || null,
         lng: lng || null,
         created_by: req.user.id,
@@ -302,7 +326,12 @@ export const confirmDeliveryWithProof = async (req, res) => {
       success: true,
       order: updatedOrder,
       evidence,
-      message: '✅ Entrega confirmada con evidencia'
+      pod: pod || null,
+      out_of_coverage: outOfCoverage,
+      distance_meters: distanceMeters != null ? Math.round(distanceMeters) : null,
+      message: outOfCoverage
+        ? '✅ Entrega confirmada FUERA DE COBERTURA'
+        : '✅ Entrega confirmada con evidencia'
     });
   } catch (err) {
     console.error('Error confirmDeliveryWithProof:', err.message);
